@@ -13,6 +13,7 @@ cmake_minimum_required(VERSION 3.17)
 add_executable(mcu2_slave
     main.c
     diagnostics/uart_log.c
+    pio_bus/pio_slave.c
 )
 
 # -----------------------------------------------------------------------------
@@ -22,6 +23,7 @@ target_link_libraries(mcu2_slave
     pico_stdlib
     hardware_uart
     hardware_watchdog
+    hardware_pio
     pico_float_pico
     pico_double_pico
 )
@@ -38,6 +40,7 @@ target_include_directories(mcu2_slave PRIVATE
 # UART diagnostics only — no USB on MCU2
 # MCU2 never talks to PC directly — all comms go through MCU1
 # -----------------------------------------------------------------------------
+pico_generate_pio_header(mcu2_slave ${CMAKE_CURRENT_SOURCE_DIR}/pio_bus/bus_slave.pio)
 pico_enable_stdio_usb(mcu2_slave 0)
 pico_enable_stdio_uart(mcu2_slave 1)
 
