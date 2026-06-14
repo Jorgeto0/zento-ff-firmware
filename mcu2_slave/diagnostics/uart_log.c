@@ -1,0 +1,150 @@
+// =============================================================================
+// mcu2_slave/diagnostics/uart_log.c — UART Diagnostic Logging Implementation
+// Zero allocation — no printf, no malloc, no heap usage ever
+// Output format: [INFO] message\r\n
+// ⚠️  UART pins TBD — defined in config.h when schematic arrives
+// =============================================================================
+
+#include "uart_log.h"
+#include "config.h"
+#include "hardware/uart.h"
+#include "hardware/gpio.h"
+#include <stdint.h>
+#include <stddef.h>
+
+// -----------------------------------------------------------------------------
+// Internal constants
+// -----------------------------------------------------------------------------
+#define LOG_UART        uart0
+#define LOG_BAUD_RATE   115200
+
+// -----------------------------------------------------------------------------
+// Internal helpers — no dynamic allocation, no printf
+// -----------------------------------------------------------------------------
+
+static void uart_write_str(const char *str) {
+    while (*str) {
+        uart_putc_raw(LOG_UART, *str++);
+    }
+}
+
+static void uart_write_char(char c) {
+    uart_putc_raw(LOG_UART, c);
+}
+
+static void uart_write_uint(uint32_t value) {
+    char buf[10];
+    uint8_t i = 0;
+
+    if (value == 0) {
+        uart_write_char('0');
+        return;
+    }
+
+    while (value > 0) {
+        buf[i++] = '0' + (value % 10);
+        value /= 10;
+    }
+
+    while (i > 0) {
+        uart_write_char(buf[--i]);
+    }
+}
+
+static void uart_write_int(int32_t value) {
+    if (value < 0) {
+        uart_write_char('-');
+        uart_write_uint((uint32_t)(-(value + 1)) + 1);
+    } else {
+        uart_write_uint((uint32_t)value);
+    }
+}
+
+static void uart_write_hex(uint32_t value) {
+    static const char hex_chars[] = "0123456789ABCDEF";
+    uart_write_str("0x");
+    for (int8_t i = 28; i >= 0; i -= 4) {
+        uart_write_char(hex_chars[(value >> i) & 0xF]);
+    }
+}
+
+static void uart_write_eol(void) {
+    uart_write_str("\r\n");
+}
+
+// -----------------------------------------------------------------------------
+// uart_log_init()
+// ⚠️  Uses MCU2_UART_TX_PIN and MCU2_UART_RX_PIN from config.h
+// Both are 0xFF until schematic arrives — init skipped safely if TBD
+// -----------------------------------------------------------------------------
+void uart_log_init(void) {
+    // Skip UART init if pins not yet assigned
+    if (MCU2_UART_TX_PIN == 0xFF || MCU2_UART_RX_PIN == 0xFF) {
+        return;
+    }
+
+    uart_init(LOG_UART, LOG_BAUD_RATE);
+
+    gpio_set_function(MCU2_UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(MCU2_UART_RX_PIN, GPIO_FUNC_UART);
+
+    uart_set_hw_flow(LOG_UART, false, false);
+    uart_set_format(LOG_UART, 8, 1, UART_PARITY_NONE);
+
+    // MCU2 boot marker — clearly different from MCU1 in terminal
+    uart_write_str("\r\n=== MCU2 UART LOG INIT ===\r\n");
+}
+
+// -----------------------------------------------------------------------------
+// log_info()
+// -----------------------------------------------------------------------------
+void log_info(const char *msg) {
+    if (MCU2_UART_TX_PIN == 0xFF) return;
+    uart_write_str("[INFO] ");
+    uart_write_str(msg);
+    uart_write_eol();
+}
+
+// -----------------------------------------------------------------------------
+// log_warning()
+// -----------------------------------------------------------------------------
+void log_warning(const char *msg) {
+    if (MCU2_UART_TX_PIN == 0xFF) return;
+    uart_write_str("[WARN] ");
+    uart_write_str(msg);
+    uart_write_eol();
+}
+
+// -----------------------------------------------------------------------------
+// log_error()
+// -----------------------------------------------------------------------------
+void log_error(const char *msg) {
+    if (MCU2_UART_TX_PIN == 0xFF) return;
+    uart_write_str("[ERR]  ");
+    uart_write_str(msg);
+    uart_write_eol();
+}
+
+// -----------------------------------------------------------------------------
+// log_value()
+// -----------------------------------------------------------------------------
+void log_value(const char *label, int32_t value) {
+    if (MCU2_UART_TX_PIN == 0xFF) return;
+    uart_write_str("[VAL]  ");
+    uart_write_str(label);
+    uart_write_str(" = ");
+    uart_write_int(value);
+    uart_write_eol();
+}
+
+// -----------------------------------------------------------------------------
+// log_hex()
+// -----------------------------------------------------------------------------
+void log_hex(const char *label, uint32_t value) {
+    if (MCU2_UART_TX_PIN == 0xFF) return;
+    uart_write_str("[HEX]  ");
+    uart_write_str(label);
+    uart_write_str(" = ");
+    uart_write_hex(value);
+    uart_write_eol();
+}
