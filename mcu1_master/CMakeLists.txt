@@ -12,6 +12,7 @@ cmake_minimum_required(VERSION 3.17)
 add_executable(mcu1_master
     main.c
     diagnostics/uart_log.c
+    pio_bus/pio_master.c
 )
 
 # -----------------------------------------------------------------------------
@@ -24,6 +25,7 @@ target_link_libraries(mcu1_master
     pico_stdlib
     hardware_uart
     hardware_watchdog
+    hardware_pio
     pico_float_pico
     pico_double_pico
 )
@@ -42,6 +44,7 @@ target_include_directories(mcu1_master PRIVATE
 # stdout goes to UART0, not USB
 # This changes in Phase 1.3 when TinyUSB HID stack is added
 # -----------------------------------------------------------------------------
+pico_generate_pio_header(mcu1_master ${CMAKE_CURRENT_SOURCE_DIR}/pio_bus/bus_master.pio)
 pico_enable_stdio_usb(mcu1_master 0)
 pico_enable_stdio_uart(mcu1_master 1)
 
