@@ -1,0 +1,66 @@
+;==============================================================================
+; mcu1_master/pio_bus/bus_master.pio — PIO Bus Master State Machines
+; Target: RP2350B PIO assembly
+; Bus: 1-bit serial, master controls clock
+; Two state machines:
+;   SM0 — TX (MCU1 sends data to MCU2)
+;   SM1 — RX (MCU1 receives data from MCU2)
+; Physical pins: assigned in C driver from config.h
+;==============================================================================
+
+;------------------------------------------------------------------------------
+; TX State Machine (SM0) — Master sends data
+; Sends 8 bits per byte, MSB first
+; Sideset pin = CLK — toggled automatically with each instruction
+;
+; Pin mapping (set in C driver):
+;   OUT pin  = DATA_TX pin (MCU1 → MCU2)
+;   SIDESET  = CLK pin
+;
+; Timing per bit:
+;   [CLK LOW]  data bit placed on DATA pin
+;   [CLK HIGH] slave reads data bit
+;   = 2 cycles per bit × 8 bits = 16 cycles per byte
+;------------------------------------------------------------------------------
+.program bus_master_tx
+.side_set 1                     ; 1 sideset pin = CLK
+
+.wrap_target
+    pull block          side 0  ; Pull byte from TX FIFO, CLK LOW
+                                ; 'block' = wait if FIFO empty
+    set x, 7           side 0  ; Load bit counter (8 bits = 7 downto 0)
+
+bitloop:
+    out pins, 1        side 0  ; Shift 1 bit MSB first to DATA pin, CLK LOW
+    nop                side 1  ; CLK HIGH — slave reads bit here
+    jmp x-- bitloop    side 0  ; Decrement counter, loop if not done, CLK LOW
+.wrap                           ; Go back, get next byte
+
+
+;------------------------------------------------------------------------------
+; RX State Machine (SM1) — Master receives data
+; Reads 8 bits per byte, MSB first
+; Waits for CLK HIGH from slave — slave drives clock during its TX
+;
+; Pin mapping (set in C driver):
+;   IN pin   = DATA_RX pin (MCU2 → MCU1)
+;   WAIT pin = CLK_RX pin (slave toggles this when sending)
+;
+; Note: During RX, MCU2 is the one toggling the clock
+;       MCU1 just waits and reads
+;------------------------------------------------------------------------------
+.program bus_master_rx
+
+.wrap_target
+    set x, 7                    ; Load bit counter
+
+bitloop:
+    wait 1 pin 1                ; Wait for CLK_RX HIGH (pin index 1)
+    in pins, 1                  ; Read 1 bit from DATA_RX into shift register
+    wait 0 pin 1                ; Wait for CLK_RX LOW before next bit
+    jmp x-- bitloop             ; Decrement counter, loop if not done
+
+    push noblock                ; Push complete byte to RX FIFO
+                                ; 'noblock' = don't stall if FIFO full
+                                ; (we handle overflow in C driver)
+.wrap
