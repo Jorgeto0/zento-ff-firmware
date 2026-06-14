@@ -1,0 +1,61 @@
+;==============================================================================
+; mcu2_slave/pio_bus/bus_slave.pio — PIO Bus Slave State Machines
+; Target: RP2350B PIO assembly
+; Bus: 1-bit serial, slave follows master clock on RX, drives own clock on TX
+; Two state machines:
+;   SM0 — RX (MCU2 receives data from MCU1)
+;   SM1 — TX (MCU2 sends data to MCU1)
+; Physical pins: assigned in C driver from config.h
+;==============================================================================
+
+;------------------------------------------------------------------------------
+; RX State Machine (SM0) — Slave receives data from master
+; Master drives CLK during this direction
+; Slave waits for CLK HIGH, reads DATA bit, waits for CLK LOW, repeats
+;
+; Pin mapping (set in C driver):
+;   IN pin   = DATA_RX pin (MCU1 → MCU2)
+;   WAIT pin = CLK pin (master toggles this)
+;
+; Must mirror bus_master_tx exactly — same timing, same bit order (MSB first)
+;------------------------------------------------------------------------------
+.program bus_slave_rx
+
+.wrap_target
+    set x, 7                    ; Load bit counter (8 bits = 7 downto 0)
+
+bitloop:
+    wait 1 pin 1                ; Wait for CLK HIGH (master driving clock)
+    in pins, 1                  ; Read 1 bit from DATA_RX, MSB first
+    wait 0 pin 1                ; Wait for CLK LOW before next bit
+    jmp x-- bitloop             ; Decrement counter, loop if not done
+
+    push noblock                ; Push complete byte to RX FIFO
+                                ; C driver reads this immediately
+.wrap
+
+
+;------------------------------------------------------------------------------
+; TX State Machine (SM1) — Slave sends data to master
+; Slave drives its own CLK during this direction
+; Master RX state machine waits for this clock
+;
+; Pin mapping (set in C driver):
+;   OUT pin  = DATA_TX pin (MCU2 → MCU1)
+;   SIDESET  = CLK_TX pin (slave drives this, master reads it)
+;
+; Must mirror bus_master_rx exactly — same timing, same bit order (MSB first)
+;------------------------------------------------------------------------------
+.program bus_slave_tx
+.side_set 1                     ; 1 sideset pin = CLK_TX
+
+.wrap_target
+    pull block          side 0  ; Pull byte from TX FIFO, CLK LOW
+                                ; Block until C driver pushes data
+    set x, 7           side 0  ; Load bit counter
+
+bitloop:
+    out pins, 1        side 0  ; Shift 1 bit MSB first to DATA_TX, CLK LOW
+    nop                side 1  ; CLK HIGH — master reads bit here
+    jmp x-- bitloop    side 0  ; Decrement counter, loop, CLK LOW
+.wrap                           ; Get next byte
