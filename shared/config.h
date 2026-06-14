@@ -15,6 +15,10 @@
 // -----------------------------------------------------------------------------
 // MCU1 — UART (Diagnostics)
 // -----------------------------------------------------------------------------
+// ⚠️  CONFLICT WARNING: GPIO0/1 shared with ESP8684 UART
+// When ESP8684 comes in scope, UART diagnostics must move to different pins
+// Safe for now — ESP8684 is out of scope in Phase 1
+
 #define UART0_TX_PIN        0   // GPIO0 — ESP_TX (shared with ESP8684)
 #define UART0_RX_PIN        1   // GPIO1 — ESP_RX (shared with ESP8684)
 
