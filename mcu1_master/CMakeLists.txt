@@ -13,6 +13,8 @@ add_executable(mcu1_master
     main.c
     diagnostics/uart_log.c
     pio_bus/pio_master.c
+    usb_hid/hid_descriptors.c
+    usb_hid/hid.c
 )
 
 # -----------------------------------------------------------------------------
@@ -28,6 +30,8 @@ target_link_libraries(mcu1_master
     hardware_pio
     pico_float_pico
     pico_double_pico
+    tinyusb_device
+    tinyusb_board
 )
 
 # -----------------------------------------------------------------------------
@@ -43,6 +47,8 @@ target_include_directories(mcu1_master PRIVATE
 # USB output disabled — we use UART for diagnostics in Phase 1
 # stdout goes to UART0, not USB
 # This changes in Phase 1.3 when TinyUSB HID stack is added
+# USB stdio disabled — TinyUSB manages USB directly
+# UART stdio enabled for diagnostics
 # -----------------------------------------------------------------------------
 pico_generate_pio_header(mcu1_master ${CMAKE_CURRENT_SOURCE_DIR}/pio_bus/bus_master.pio)
 pico_enable_stdio_usb(mcu1_master 0)
