@@ -102,3 +102,7 @@ typedef struct __attribute__((packed)) {
 // -----------------------------------------------------------------------------
 // Packet size sanity checks — caught at compile time
 // If these fail the build breaks immediately with a
+_Static_assert(sizeof(proto_m2s_t) == 22, "proto_m2s_t size mismatch");
+_Static_assert(sizeof(proto_s2m_t) == 26, "proto_s2m_t size mismatch");
+
+#endif // PROTOCOL_H
