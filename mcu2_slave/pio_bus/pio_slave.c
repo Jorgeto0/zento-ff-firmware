@@ -185,9 +185,6 @@ pio_slave_result_t pio_slave_send(proto_s2m_t *packet) {
     packet->packet_type = PROTO_TYPE_S2M;
     packet->length      = sizeof(proto_s2m_t) - 4;
 
-    // Fill timestamp
-    packet->timestamp_us = (uint32_t)time_us_32();
-
     // Clear reserved bytes
     for (uint8_t i = 0; i < PROTO_RESERVED_BYTES; i++) {
         packet->reserved[i] = 0x00;
