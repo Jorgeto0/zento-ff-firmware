@@ -37,7 +37,7 @@ const uint8_t usb_hid_report_descriptor[] = {
     HID_USAGE       ( HID_USAGE_DESKTOP_JOYSTICK ),
     HID_COLLECTION  ( HID_COLLECTION_APPLICATION ),
 
-        HID_REPORT_ID ( REPORT_ID_PRIMARY         ),
+        HID_REPORT_ID ( REPORT_ID_PRIMARY         )
 
         // Stick 1 X
         HID_USAGE           ( HID_USAGE_DESKTOP_X   ),
@@ -102,7 +102,7 @@ const uint8_t usb_hid_report_descriptor[] = {
     HID_USAGE       ( HID_USAGE_DESKTOP_GAMEPAD   ),
     HID_COLLECTION  ( HID_COLLECTION_APPLICATION  ),
 
-        HID_REPORT_ID ( REPORT_ID_CONFIG           ),
+        HID_REPORT_ID ( REPORT_ID_CONFIG           )
 
         // 63 bytes OUT
         HID_USAGE           ( HID_USAGE_DESKTOP_X  ),
