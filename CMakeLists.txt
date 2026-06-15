@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17)
 
 # Must be set before project() call
-set(PICO_BOARD rp2350b)
+set(PICO_BOARD pico2)
 
 # Pull in Pico SDK (must be before project())
 include(pico_sdk_import.cmake)
