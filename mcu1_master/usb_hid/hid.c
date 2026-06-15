@@ -136,10 +136,7 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
         return string_buf;
     }
 
-    // Check index valid
-    uint8_t num_strings = sizeof(usb_string_descriptor) /
-                          sizeof(usb_string_descriptor[0]);
-    if (index >= num_strings) {
+    if (index >= 4) {
         return NULL;
     }
 

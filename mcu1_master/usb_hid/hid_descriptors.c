@@ -118,7 +118,7 @@ const uint8_t usb_hid_report_descriptor[] = {
     HID_COLLECTION_END,
 
     // ----- Config Report (ID 2) — Raw 63-byte IN/OUT -----
-    HID_USAGE_PAGE  ( HID_USAGE_PAGE_VENDOR_SPECIFIC ),
+    HID_USAGE_PAGE  ( HID_USAGE_PAGE_VENDOR ),
     HID_USAGE       ( 0x01                           ),
     HID_COLLECTION  ( HID_COLLECTION_APPLICATION     ),
 
