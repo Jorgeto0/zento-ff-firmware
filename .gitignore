@@ -18,3 +18,4 @@ Makefile
 # Editor
 *.swp
 *.swo
+build/
