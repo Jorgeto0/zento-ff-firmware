@@ -51,8 +51,8 @@ static bool bus_ready      = false;  // Set true after successful init
 pio_bus_result_t pio_master_init(void) {
 
     // Guard — skip if pins not assigned yet
-    if (PIO_BUS_PIN_0 == 0xFF || PIO_BUS_PIN_1 == 0xFF ||
-        PIO_BUS_PIN_2 == 0xFF || PIO_BUS_PIN_3 == 0xFF) {
+        if (MCU1_PIO1_PIN == 0xFF || MCU1_PIO2_PIN == 0xFF ||
+            MCU1_PIO3_PIN == 0xFF || MCU1_PIO_CLK_PIN == 0xFF) {
         log_warning("PIO master init skipped — pins TBD in config.h");
         return PIO_BUS_ERR_PIN_TBD;
     }
@@ -65,11 +65,10 @@ pio_bus_result_t pio_master_init(void) {
     //   PIO_BUS_PIN_2 = DATA_RX (MCU2 → MCU1)
     //   PIO_BUS_PIN_3 = CLK_RX  (MCU2 drives during its TX)
     //   ⚠️  CLK_RX must = DATA_RX + 1 (PIO constraint)
-    uint pin_data_tx = PIO_BUS_PIN_0;
-    uint pin_clk_tx  = PIO_BUS_PIN_1;
-    uint pin_data_rx = PIO_BUS_PIN_2;
-    uint pin_clk_rx  = PIO_BUS_PIN_3;  // Must be DATA_RX + 1
-
+    uint pin_data_tx = MCU1_PIO1_PIN;
+    uint pin_clk_tx  = MCU1_PIO2_PIN;
+    uint pin_data_rx = MCU1_PIO3_PIN;
+    uint pin_clk_rx  = MCU1_PIO_CLK_PIN;
     // -------------------------------------------------------------------------
     // Load TX program (SM0)
     // -------------------------------------------------------------------------

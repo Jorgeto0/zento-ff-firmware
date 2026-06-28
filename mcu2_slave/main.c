@@ -110,12 +110,14 @@ static void watchdog_init(void) {
 // -----------------------------------------------------------------------------
 static void gpio_init_all(void) {
 
-    // MCU2 motor PWM pins — all 0xFF until schematic arrives
-    const uint8_t pwm_pins[] = {
-        MCU2_PWM_COIL1_PIN, MCU2_PWM_COIL2_PIN, MCU2_PWM_COIL3_PIN,
-        MCU2_PWM_COIL4_PIN, MCU2_PWM_COIL5_PIN
-    };
+    
+// MCU2 motor PWM pins — all 0xFF until schematic arrives
 
+    const uint8_t pwm_pins[] = {
+    PWM_COIL5_PIN, PWM_COIL6_PIN, PWM_COIL7_PIN,
+    PWM_COIL8_PIN, PWM_COIL9_PIN
+    };
+    
     for (uint8_t i = 0; i < 5; i++) {
         if (pwm_pins[i] != 0xFF) {
             gpio_init(pwm_pins[i]);
@@ -125,9 +127,10 @@ static void gpio_init_all(void) {
     }
 
     // MCU2 DIR pins
+
     const uint8_t dir_pins[] = {
-        MCU2_DIR_COIL1_PIN, MCU2_DIR_COIL2_PIN, MCU2_DIR_COIL3_PIN,
-        MCU2_DIR_COIL4_PIN, MCU2_DIR_COIL5_PIN
+    DIR_COIL5_PIN, DIR_COIL6_PIN, DIR_COIL7_PIN,
+    DIR_COIL8_PIN, DIR_COIL9_PIN
     };
 
     for (uint8_t i = 0; i < 5; i++) {
@@ -139,12 +142,16 @@ static void gpio_init_all(void) {
     }
 
     // MCU2 EN pin
-    if (MCU2_EN_COIL1_PIN != 0xFF) {
-        gpio_init(MCU2_EN_COIL1_PIN);
-        gpio_set_dir(MCU2_EN_COIL1_PIN, GPIO_OUT);
-        gpio_put(MCU2_EN_COIL1_PIN, 0);
-    }
+    const uint8_t en_pins[] = {
+        EN_COIL_COIL_RIGHT_PIN,
+        EN_COIL_THUMB_RIGHT_PIN
+    };
 
+    for (uint8_t i = 0; i < 2; i++) {
+        gpio_init(en_pins[i]);
+        gpio_set_dir(en_pins[i], GPIO_OUT);
+        gpio_put(en_pins[i], 0);
+    }
     // MCU2 I2C pins — direction set by I2C driver, not here
     // Listed for reference — initialized when I2C driver comes in Phase 2
 }

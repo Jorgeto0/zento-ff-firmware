@@ -158,14 +158,13 @@ static void gpio_init_all(void) {
     }
 
     // EN pins — output, start LOW (drivers disabled at boot)
-    // ⚠️  All EN pins currently 0xFF — skipped until schematic updated
+    
     const uint8_t en_pins[] = {
-        EN_COIL1_PIN, EN_COIL2_PIN, EN_COIL3_PIN,
-        EN_COIL4_PIN, EN_COIL5_PIN, EN_COIL6_PIN,
-        EN_COIL7_PIN, EN_COIL8_PIN, EN_COIL9_PIN
+    EN_COIL_THUMB_LEFT_PIN,
+    EN_COIL_COIL_LEFT_PIN
     };
 
-    for (uint8_t i = 0; i < 9; i++) {
+    for (uint8_t i = 0; i < 2; i++) {
         if (en_pins[i] != 0xFF) {
             gpio_init(en_pins[i]);
             gpio_set_dir(en_pins[i], GPIO_OUT);
@@ -186,12 +185,6 @@ static void gpio_init_all(void) {
         }
     }
 
-    // ESP reset pin — output, start HIGH (not in reset)
-    if (ESP_RST_PIN != 0xFF) {
-        gpio_init(ESP_RST_PIN);
-        gpio_set_dir(ESP_RST_PIN, GPIO_OUT);
-        gpio_put(ESP_RST_PIN, 1);
-    }
 }
 
 // -----------------------------------------------------------------------------

@@ -43,8 +43,8 @@ static bool bus_ready      = false;  // Set true after successful init
 pio_slave_result_t pio_slave_init(void) {
 
     // Guard — skip if pins not assigned yet
-    if (MCU2_PIO_BUS_PIN_0 == 0xFF || MCU2_PIO_BUS_PIN_1 == 0xFF ||
-        MCU2_PIO_BUS_PIN_2 == 0xFF || MCU2_PIO_BUS_PIN_3 == 0xFF) {
+        if (MCU2_PIO1_PIN == 0xFF || MCU2_PIO2_PIN == 0xFF ||
+            MCU2_PIO3_PIN == 0xFF || MCU2_PIO_CLK_PIN == 0xFF) {
         log_warning("PIO slave init skipped — pins TBD in config.h");
         return PIO_SLAVE_ERR_PIN_TBD;
     }
@@ -55,11 +55,10 @@ pio_slave_result_t pio_slave_init(void) {
     //   MCU2_PIO_BUS_PIN_1 = CLK_RX  (master drives) — must = PIN_0 + 1
     //   MCU2_PIO_BUS_PIN_2 = DATA_TX (MCU2 → MCU1)
     //   MCU2_PIO_BUS_PIN_3 = CLK_TX  (slave drives during TX)
-    uint pin_data_rx = MCU2_PIO_BUS_PIN_0;
-    uint pin_clk_rx  = MCU2_PIO_BUS_PIN_1;  // Must = DATA_RX + 1
-    uint pin_data_tx = MCU2_PIO_BUS_PIN_2;
-    uint pin_clk_tx  = MCU2_PIO_BUS_PIN_3;
-
+    uint pin_data_rx = MCU2_PIO1_PIN;
+    uint pin_clk_rx  = MCU2_PIO2_PIN;
+    uint pin_data_tx = MCU2_PIO3_PIN;
+    uint pin_clk_tx  = MCU2_PIO_CLK_PIN;
     // -------------------------------------------------------------------------
     // Load RX program (SM0)
     // -------------------------------------------------------------------------
