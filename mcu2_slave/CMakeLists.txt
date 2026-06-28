@@ -41,7 +41,7 @@ target_include_directories(mcu2_slave PRIVATE
 # MCU2 never talks to PC directly — all comms go through MCU1
 # -----------------------------------------------------------------------------
 pico_generate_pio_header(mcu2_slave ${CMAKE_CURRENT_SOURCE_DIR}/pio_bus/bus_slave.pio)
-pico_enable_stdio_usb(mcu2_slave 0)
+pico_enable_stdio_usb(mcu2_slave 1)
 pico_enable_stdio_uart(mcu2_slave 1)
 
 # -----------------------------------------------------------------------------
