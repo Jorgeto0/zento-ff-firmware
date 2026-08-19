@@ -45,10 +45,13 @@ bool hid_send_primary(hid_primary_report_t *report) {
 
     report->report_id = REPORT_ID_PRIMARY;
 
+    // TinyUSB prepends the report ID itself — skip our own copy of it,
+    // otherwise the ID is sent twice and every byte after it shifts by one.
+    // 30 byte struct - 1 = 29 bytes, which matches the HID report descriptor.
     return tud_hid_report(
         REPORT_ID_PRIMARY,
-        report,
-        sizeof(hid_primary_report_t)
+        (const uint8_t *)report + 1,
+        sizeof(hid_primary_report_t) - 1
     );
 }
 
@@ -63,10 +66,11 @@ bool hid_send_config(hid_config_report_t *report) {
 
     report->report_id = REPORT_ID_CONFIG;
 
+    // Same as above — 64 byte struct - 1 = 63 bytes, matches the descriptor.
     return tud_hid_report(
         REPORT_ID_CONFIG,
-        report,
-        sizeof(hid_config_report_t)
+        (const uint8_t *)report + 1,
+        sizeof(hid_config_report_t) - 1
     );
 }
 
