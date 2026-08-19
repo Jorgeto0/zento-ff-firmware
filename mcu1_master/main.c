@@ -12,6 +12,7 @@
 #include "hardware/gpio.h"
 #include "config.h"
 #include "diagnostics/uart_log.h"
+#include "usb_hid/hid.h"
 
 // -----------------------------------------------------------------------------
 // System clock frequency
@@ -26,6 +27,11 @@
 // If main loop doesn't call watchdog_update() within this window — chip resets
 // -----------------------------------------------------------------------------
 #define WATCHDOG_TIMEOUT_MS 500
+
+// -----------------------------------------------------------------------------
+// LED heartbeat interval — proves the main loop is alive on real hardware
+// -----------------------------------------------------------------------------
+#define HEARTBEAT_MS        500
 
 // -----------------------------------------------------------------------------
 // Forward declarations
@@ -61,7 +67,10 @@ int main(void) {
     gpio_init_all();
     log_info("GPIO init complete");
 
-    // Step 5 — Start watchdog (must feed it in main loop from this point on)
+    // Step 5 — Start USB HID stack (before watchdog so tusb_init is never interrupted)
+    hid_init();
+
+    // Step 6 — Start watchdog (must feed it in main loop from this point on)
     watchdog_init();
     log_info("Watchdog started — 500ms timeout");
 
@@ -73,13 +82,28 @@ int main(void) {
     // Must call watchdog_update() every iteration — never block here
     // All work done via state machines and flags — no blocking calls
     // -------------------------------------------------------------------------
+    uint32_t last_blink_ms = to_ms_since_boot(get_absolute_time());
+    bool     led_on         = false;
+
     while (1) {
 
         // Feed watchdog — must happen every loop iteration
         // If this stops being called — chip resets in 500ms
         watchdog_update();
 
-        // Phase 1 placeholder — peripheral drivers added in later steps
+        // Drive the USB stack — must run every iteration, never blocks
+        hid_task();
+
+        // LED heartbeat — non-blocking, proves the loop is running
+        uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+        if ((now_ms - last_blink_ms) >= HEARTBEAT_MS) {
+            last_blink_ms = now_ms;
+            led_on = !led_on;
+            if (M_LED_G_PIN != 0xFF) {
+                gpio_put(M_LED_G_PIN, led_on);
+            }
+        }
+
         // DO NOT add blocking calls here
         // DO NOT add sleep_ms() here — use timestamps instead
 
@@ -173,11 +197,12 @@ static void gpio_init_all(void) {
     }
 
     // Button pins — input, pull up
+    // MCU1 has SW1/SW2/SW3 only — SW4/SW5 belong to MCU2
     const uint8_t sw_pins[] = {
-        SW1_PIN, SW2_PIN, SW3_PIN, SW4_PIN, SW5_PIN
+        SW1_PIN, SW2_PIN, SW3_PIN
     };
 
-    for (uint8_t i = 0; i < 5; i++) {
+    for (uint8_t i = 0; i < 3; i++) {
         if (sw_pins[i] != 0xFF) {
             gpio_init(sw_pins[i]);
             gpio_set_dir(sw_pins[i], GPIO_IN);
@@ -185,6 +210,18 @@ static void gpio_init_all(void) {
         }
     }
 
+    // Status LEDs — output, start LOW
+    const uint8_t led_pins[] = {
+        M_LED_G_PIN, M_LED_R_PIN
+    };
+
+    for (uint8_t i = 0; i < 2; i++) {
+        if (led_pins[i] != 0xFF) {
+            gpio_init(led_pins[i]);
+            gpio_set_dir(led_pins[i], GPIO_OUT);
+            gpio_put(led_pins[i], 0);
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
