@@ -3,244 +3,171 @@
 
 // =============================================================================
 // shared/config.h — Pin Definitions (Single Source of Truth)
-// Hardware: ZENTO FF — Dual RP2350B
-// MCU1 = U2  — MainController-LEFT  (USB HID, display, coils 1-4 + 10)
-// MCU2 = U11 — SlaveController-RIGHT (coils 5-9, right stick)
-// Verified: 2026-06-28 from EasyEDA schematics
+// Hardware: ZENTO Flux — Controller_Board_V1 — Dual RP2350B
+// MCU1 = U2  — MainController-LEFT   (USB HID, display, coils 1-4 + VC1)
+// MCU2 = U11 — SlaveController-RIGHT (coils 1-4 + VC1, right side)
+// Source: Netlist_Schematic3_1_2026-08-20.enet — extracted, not transcribed
 // =============================================================================
-
+// V1 vs V0: DRV8873SPWPR SPI H-bridges replace MAX14870. MCP3208 removed —
+// current sense goes direct to MCU ADC. Fault lines moved to PCAL6416A (I2C).
+// =============================================================================
 
 // =============================================================================
 // MCU1 — MainController-LEFT (U2)
 // =============================================================================
 
-// -----------------------------------------------------------------------------
-// MCU1 — Buttons
-// -----------------------------------------------------------------------------
-#define SW1_PIN                 0   // GPIO0
+// PIO inter-MCU bus — same GPIOs on both chips, 27.4R series terminated
+#define MCU1_PIO1_PIN            1   // pin 78
+#define MCU1_PIO2_PIN            2   // pin 79
+#define MCU1_PIO3_PIN            3   // pin 80
+#define MCU1_PIO4_PIN            4   // pin 1
+#define MCU1_PIO_CLK_PIN         5   // pin 2
 
-// -----------------------------------------------------------------------------
-// MCU1 — PIO Inter-MCU Bus
-// ⚠️  PIO1-PIO4 = data lines, PIO_CLK = clock
-// ⚠️  Consecutive pin constraint: PIO_CLK must = last PIO data pin + 1
-// -----------------------------------------------------------------------------
-#define MCU1_PIO1_PIN           1   // GPIO1
-#define MCU1_PIO2_PIN           2   // GPIO2
-#define MCU1_PIO3_PIN           3   // GPIO3
-#define MCU1_PIO4_PIN           4   // GPIO4
-#define MCU1_PIO_CLK_PIN        5   // GPIO5
+// Display SPI
+#define SPI_DISPLAY_MOSI_PIN     6   // pin 3
+#define SPI_DISPLAY_MISO_PIN     7   // pin 4
+#define SPI_DISPLAY_SCK_PIN      8   // pin 6
+#define SPI_DISPLAY_CS_PIN       9   // pin 7
+// SPI_DISPLAY_RST is on the PCAL6416A expander (P0_4), not a GPIO
 
-// -----------------------------------------------------------------------------
-// MCU1 — SPI Display
-// -----------------------------------------------------------------------------
-#define SPI_DISPLAY_MOSI_PIN    6   // GPIO6
-#define SPI_DISPLAY_MISO_PIN    7   // GPIO7
-#define SPI_DISPLAY_SCK_PIN     8   // GPIO8
-#define SPI_DISPLAY_CS_PIN      9   // GPIO9
+// I2C
+#define M_I2C1_SDA_PIN          10   // pin 8
+#define M_I2C1_SCL_PIN          11   // pin 9
+#define M_I2C0_SDA_PIN          12   // pin 11
+#define M_I2C0_SCL_PIN          13   // pin 12
 
-// -----------------------------------------------------------------------------
-// MCU1 — I2C Buses
-// -----------------------------------------------------------------------------
-#define M_I2C1_SDA_PIN          10  // GPIO10 — Left stick TMAG + PCAL6416A
-#define M_I2C1_SCL_PIN          11  // GPIO11
-#define M_I2C0_SDA_PIN          12  // GPIO12 — Temp sensor + right stick
-#define M_I2C0_SCL_PIN          13  // GPIO13
+// Sensors
+#define M_SPI1_CS_AS_PIN        14   // pin 13 — AS5047 angle sensor CS
+#define INT_EXPANDER_PIN        15   // pin 14 — PCAL6416A interrupt (input)
 
-// -----------------------------------------------------------------------------
-// MCU1 — Misc GPIO
-// -----------------------------------------------------------------------------
-#define RGB_L_PIN               14  // GPIO14 — RGB LED left thumbstick
-#define TAHO_PIN                15  // GPIO15 — Tachometer signal
+// SPI0 — TMAG hall sensor
+#define M_SPI0_SDI_PIN          16   // pin 16
+#define M_SPI0_CS_PIN           17   // pin 17
+#define M_SPI0_SCK_PIN          18   // pin 18
+#define M_SPI0_SDO_PIN          19   // pin 19
 
-// -----------------------------------------------------------------------------
-// MCU1 — SPI0 Bus (TMAG5170 Hall sensor)
-// -----------------------------------------------------------------------------
-#define M_SPI0_SDI_PIN          16  // GPIO16 — MISO
-#define M_SPI0_CS_PIN           17  // GPIO17 — Chip select
-#define M_SPI0_SCK_PIN          18  // GPIO18 — Clock
-#define M_SPI0_SDO_PIN          19  // GPIO19 — MOSI
+// SPI1 — LSM6DSL gyro
+#define M_SPI1_SDI_PIN          20   // pin 20
+#define M_SPI1_CS_PIN           21   // pin 21
+#define M_SPI1_SCK_PIN          22   // pin 22
+#define M_SPI1_SDO_PIN          23   // pin 23
 
-// -----------------------------------------------------------------------------
-// MCU1 — SPI1 Bus (LSM6DSL Gyro + AS5047 angle sensor)
-// -----------------------------------------------------------------------------
-#define M_SPI1_SDI_PIN          20  // GPIO20 — MISO
-#define M_SPI1_CS_PIN           21  // GPIO21 — Chip select (GYRO)
-#define M_SPI1_SCK_PIN          22  // GPIO22 — Clock
-#define M_SPI1_SDO_PIN          23  // GPIO23 — MOSI
+// DRV8873 per-driver chip selects
+#define M_SPI_CS_COIL1_PIN      24   // pin 25
+#define M_SPI_CS_COIL2_PIN      25   // pin 26
+#define M_SPI_CS_COIL3_PIN      26   // pin 27
+#define M_SPI_CS_COIL4_PIN      27   // pin 28
+#define M_SPI_CS_VC1_PIN         0   // pin 77
 
-// -----------------------------------------------------------------------------
-// MCU1 — Motor PWM + DIR
-// Coils 1-4 on MCU1, Coil 10 also on MCU1
-// ⚠️  Coils 5-9 are on MCU2
-// ⚠️  Note gap in pin numbers — GPIO28 skips to pin 36 (chip layout)
-// -----------------------------------------------------------------------------
-#define PWM_COIL1_PIN           24  // GPIO24 — pin 25
-#define DIR_COIL1_PIN           25  // GPIO25 — pin 26
-#define PWM_COIL2_PIN           26  // GPIO26 — pin 27
-#define DIR_COIL2_PIN           27  // GPIO27 — pin 28
-#define PWM_COIL3_PIN           28  // GPIO28 — pin 36
-#define DIR_COIL3_PIN           29  // GPIO29 — pin 37
-#define PWM_COIL4_PIN           30  // GPIO30 — pin 38
-#define DIR_COIL4_PIN           31  // GPIO31 — pin 39
-#define PWM_COIL10_PIN          32  // GPIO32 — pin 40
-#define DIR_COIL10_PIN          33  // GPIO33 — pin 42
+// Motor PWM + DIR — 4 coils + 1 voice coil
+#define M_PWM_COIL1_PIN         28   // pin 36
+#define M_DIR_COIL1_PIN         29   // pin 37
+#define M_PWM_COIL2_PIN         30   // pin 38
+#define M_DIR_COIL2_PIN         31   // pin 39
+#define M_PWM_COIL3_PIN         32   // pin 40
+#define M_DIR_COIL3_PIN         33   // pin 42
+#define M_PWM_COIL4_PIN         34   // pin 43
+#define M_DIR_COIL4_PIN         35   // pin 44
+#define M_PWM_VC1_PIN           36   // pin 45
+#define M_DIR_VC1_PIN           37   // pin 46
 
-// -----------------------------------------------------------------------------
-// MCU1 — EN + FAULT pins
-// ⚠️  EN_COIL_THUMB_LEFT  = enable for thumb stick coils (left side)
-// ⚠️  EN_COIL_COIL_LEFT   = enable for regular coils (left side)
-// -----------------------------------------------------------------------------
-#define EN_COIL_THUMB_LEFT_PIN  34  // GPIO34 — pin 43
-#define FAULT_THUMB_LEFT_PIN    35  // GPIO35 — pin 44
-#define EN_COIL_COIL_LEFT_PIN   36  // GPIO36 — pin 45
-#define FAULT_COIL_LEFT_PIN     37  // GPIO37 — pin 46
+// DRV8873 shared SPI bus (config/diagnostics)
+#define M_SPI_DO_COIL_PIN       38   // pin 47
+#define M_SPI_DI_COIL_PIN       39   // pin 48
+#define M_SPI_SCK_COIL_PIN      40   // pin 49
 
-// -----------------------------------------------------------------------------
-// MCU1 — LEDs
-// -----------------------------------------------------------------------------
-#define M_LED_G_PIN             38  // GPIO38 — pin 47
-#define M_LED_R_PIN             39  // GPIO39 — pin 48
+// Status
+#define M_LED_G_PIN             41   // pin 52 — the only plain LED on the board
+#define SW1_PIN                 42   // pin 53
+// SW2-SW5 are on the PCAL6416A expander (P0_0..P0_3), not GPIOs
 
-// -----------------------------------------------------------------------------
-// MCU1 — ADC (Direct ADC — thumb stick current channels 1-4 + 10)
-// -----------------------------------------------------------------------------
-#define ADC_THUMB_1_PIN         40  // GPIO40 ADC0 — pin 49
-#define ADC_THUMB_2_PIN         41  // GPIO41 ADC1 — pin 52
-#define ADC_THUMB_3_PIN         42  // GPIO42 ADC2 — pin 53
-#define ADC_THUMB_4_PIN         43  // GPIO43 ADC3 — pin 54
-#define ADC_THUMB_10_PIN        44  // GPIO44 ADC4 — pin 55
+// Current sense — direct to ADC (IPROPI from each DRV8873)
+#define M_CURRENT_VC1_PIN       43   // pin 54 ADC3
+#define M_CURRENT_COIL1_PIN     44   // pin 55 ADC4
+#define M_CURRENT_COIL2_PIN     45   // pin 56 ADC5
+#define M_CURRENT_COIL3_PIN     46   // pin 57 ADC6
+#define M_CURRENT_COIL4_PIN     47   // pin 58 ADC7
 
-// -----------------------------------------------------------------------------
-// MCU1 — Buttons (continued)
-// -----------------------------------------------------------------------------
-#define SW2_PIN                 45  // GPIO45 ADC5 — pin 56
-#define SW3_PIN                 46  // GPIO46 ADC6 — pin 57
-
-// -----------------------------------------------------------------------------
-// MCU1 — AS5047 angle sensor chip select
-// -----------------------------------------------------------------------------
-#define M_SPI1_CS_AS_PIN        47  // GPIO47 ADC7 — pin 58
-
+// UART diagnostics — DEV ONLY, borrows SW1. GPIO42 muxes to UART1_TX.
+// Revert to SW1 for production. TX only, no RX pin available.
+#define UART0_TX_PIN            42
+#define UART0_RX_PIN            0xFF
 
 // =============================================================================
 // MCU2 — SlaveController-RIGHT (U11)
 // =============================================================================
 
-// -----------------------------------------------------------------------------
-// MCU2 — Buttons
-// -----------------------------------------------------------------------------
-#define SW4_PIN                 0   // GPIO0 — pin 77
+#define MCU2_PIO1_PIN            1   // pin 78
+#define MCU2_PIO2_PIN            2   // pin 79
+#define MCU2_PIO3_PIN            3   // pin 80
+#define MCU2_PIO4_PIN            4   // pin 1
+#define MCU2_PIO_CLK_PIN         5   // pin 2
 
-// -----------------------------------------------------------------------------
-// MCU2 — PIO Inter-MCU Bus (mirrors MCU1 exactly)
-// ⚠️  Same GPIO numbers on both chips — connected via board connector
-// -----------------------------------------------------------------------------
-#define MCU2_PIO1_PIN           1   // GPIO1 — pin 78
-#define MCU2_PIO2_PIN           2   // GPIO2 — pin 79
-#define MCU2_PIO3_PIN           3   // GPIO3 — pin 80
-#define MCU2_PIO4_PIN           4   // GPIO4 — pin 1
-#define MCU2_PIO_CLK_PIN        5   // GPIO5 — pin 2
+// DRV8873 per-driver chip selects
+#define S_SPI_CS_COIL1_PIN       6   // pin 3
+#define S_SPI_CS_COIL2_PIN       7   // pin 4
+#define S_SPI_CS_COIL3_PIN       8   // pin 6
+#define S_SPI_CS_COIL4_PIN       9   // pin 7
+#define S_SPI_CS_VC1_PIN        24   // pin 25
 
-// -----------------------------------------------------------------------------
-// MCU2 — ESP8684 WiFi control (out of scope for now)
-// -----------------------------------------------------------------------------
-#define MCU2_ESP_RST_PIN        6   // GPIO6  — GPIO37_ESPRST
-#define MCU2_ESP_BOOT_PIN       7   // GPIO7  — GPIO36_BOOT
+// I2C
+#define S_I2C1_SDA_PIN          10   // pin 8
+#define S_I2C1_SCL_PIN          11   // pin 9
+#define S_I2C0_SDA_PIN          12   // pin 11
+#define S_I2C0_SCL_PIN          13   // pin 12
 
-// -----------------------------------------------------------------------------
-// MCU2 — EN + FAULT (right side regular coils)
-// -----------------------------------------------------------------------------
-#define EN_COIL_COIL_RIGHT_PIN  8   // GPIO8  — pin 6
-#define FAULT_COIL_RIGHT_PIN    9   // GPIO9  — pin 7
+// Encoders
+#define WHEEL_1_PIN             14   // pin 13
+#define WHEEL_2_PIN             15   // pin 14
 
-// -----------------------------------------------------------------------------
-// MCU2 — I2C Buses
-// -----------------------------------------------------------------------------
-#define S_I2C1_SDA_PIN          10  // GPIO10 — pin 8
-#define S_I2C1_SCL_PIN          11  // GPIO11 — pin 9
-#define S_I2C0_SDA_PIN          12  // GPIO12 — pin 11
-#define S_I2C0_SCL_PIN          13  // GPIO13 — pin 12
+// SPI0 — TMAG hall sensor
+#define S_SPI0_SDI_PIN          16   // pin 16
+#define S_SPI0_CS_PIN           17   // pin 17
+#define S_SPI0_SCK_PIN          18   // pin 18
+#define S_SPI0_SDO_PIN          19   // pin 19
 
-// -----------------------------------------------------------------------------
-// MCU2 — Encoders
-// -----------------------------------------------------------------------------
-#define WHEEL_1_PIN             14  // GPIO14 — pin 13
-#define WHEEL_2_PIN             15  // GPIO15 — pin 14
+// SPI1 — AS5047 angle sensor
+#define S_SPI1_SDI_PIN          20   // pin 20
+#define S_SPI1_CS_PIN           21   // pin 21
+#define S_SPI1_SCK_PIN          22   // pin 22
+#define S_SPI1_SDO_PIN          23   // pin 23
 
-// -----------------------------------------------------------------------------
-// MCU2 — SPI0 Bus (TMAG5170 Hall sensor right side)
-// -----------------------------------------------------------------------------
-#define S_SPI0_SDI_PIN          16  // GPIO16 — pin 16
-#define S_SPI0_CS_PIN           17  // GPIO17 — pin 17
-#define S_SPI0_SCK_PIN          18  // GPIO18 — pin 18
-#define S_SPI0_SDO_PIN          19  // GPIO19 — pin 19
+// Motor PWM + DIR
+#define S_PWM_COIL1_PIN         25   // pin 26
+#define S_DIR_COIL1_PIN         26   // pin 27
+#define S_PWM_COIL2_PIN         27   // pin 28
+#define S_DIR_COIL2_PIN         28   // pin 36
+#define S_PWM_COIL3_PIN         29   // pin 37
+#define S_DIR_COIL3_PIN         30   // pin 38
+#define S_PWM_COIL4_PIN         31   // pin 39
+#define S_DIR_COIL4_PIN         32   // pin 40
+#define S_PWM_VC1_PIN           33   // pin 42
+#define S_DIR_VC1_PIN           34   // pin 43
 
-// -----------------------------------------------------------------------------
-// MCU2 — SPI1 Bus (AS5047 angle sensor right side)
-// -----------------------------------------------------------------------------
-#define S_SPI1_SDI_PIN          20  // GPIO20 — pin 20
-#define S_SPI1_CS_PIN           21  // GPIO21 — pin 21
-#define S_SPI1_SCK_PIN          22  // GPIO22 — pin 22
-#define S_SPI1_SDO_PIN          23  // GPIO23 — pin 23
+// DRV8873 shared SPI bus
+#define S_SPI_DO_COIL_PIN       37   // pin 46
+#define S_SPI_DI_COIL_PIN       38   // pin 47
+#define S_SPI_SCK_COIL_PIN      39   // pin 48
 
-// -----------------------------------------------------------------------------
-// MCU2 — Motor PWM + DIR (Coils 5-9)
-// ⚠️  Same gap pattern as MCU1 — GPIO28 skips to pin 36
-// -----------------------------------------------------------------------------
-#define PWM_COIL5_PIN           24  // GPIO24 — pin 25
-#define DIR_COIL5_PIN           25  // GPIO25 — pin 26
-#define PWM_COIL6_PIN           26  // GPIO26 — pin 27
-#define DIR_COIL6_PIN           27  // GPIO27 — pin 28
-#define PWM_COIL7_PIN           28  // GPIO28 — pin 36
-#define DIR_COIL7_PIN           29  // GPIO29 — pin 37
-#define PWM_COIL8_PIN           30  // GPIO30 — pin 38
-#define DIR_COIL8_PIN           31  // GPIO31 — pin 39
-#define PWM_COIL9_PIN           32  // GPIO32 — pin 40
-#define DIR_COIL9_PIN           33  // GPIO33 — pin 42
+// Analog + RGB
+#define VOLTAGE_SENS_PIN        40   // pin 49 ADC0
+#define RGB_L_PIN               41   // pin 52 — addressable, needs driver
+#define RGB_R_PIN                0   // pin 77 — addressable, needs driver
+#define TAHO_PIN                42   // pin 53
 
-// -----------------------------------------------------------------------------
-// MCU2 — EN + FAULT (right side thumb stick)
-// -----------------------------------------------------------------------------
-#define EN_COIL_THUMB_RIGHT_PIN 34  // GPIO34 — pin 43
-#define FAULT_THUMB_RIGHT_PIN   35  // GPIO35 — pin 44
+// Current sense — direct to ADC
+#define S_CURRENT_VC1_PIN       43   // pin 54 ADC3
+#define S_CURRENT_COIL1_PIN     44   // pin 55 ADC4
+#define S_CURRENT_COIL2_PIN     45   // pin 56 ADC5
+#define S_CURRENT_COIL3_PIN     46   // pin 57 ADC6
+#define S_CURRENT_COIL4_PIN     47   // pin 58 ADC7
 
-// -----------------------------------------------------------------------------
-// MCU2 — ESP8684 UART (out of scope)
-// -----------------------------------------------------------------------------
-#define MCU2_ESP_RX_PIN         36  // GPIO36 — pin 45
-#define MCU2_ESP_TX_PIN         37  // GPIO37 — pin 46
+// Free pins — GPIO35 (pin 44) and GPIO36 (pin 45) are unconnected on U11.
+// GPIO36 muxes to UART1_TX, so diagnostics here cost nothing.
+#define MCU2_UART_TX_PIN        36
+#define MCU2_UART_RX_PIN        0xFF
+#define MCU2_SPARE_PIN          35
 
-// -----------------------------------------------------------------------------
-// MCU2 — LEDs
-// -----------------------------------------------------------------------------
-#define S_LED_G_PIN             38  // GPIO38 — pin 47
-#define S_LED_R_PIN             39  // GPIO39 — pin 48
-
-// -----------------------------------------------------------------------------
-// MCU2 — ADC (Direct ADC — thumb stick current channels 5-9)
-// -----------------------------------------------------------------------------
-#define ADC_THUMB_5_PIN         40  // GPIO40 ADC0 — pin 49
-#define ADC_THUMB_6_PIN         41  // GPIO41 ADC1 — pin 52
-#define ADC_THUMB_7_PIN         42  // GPIO42 ADC2 — pin 53
-#define ADC_THUMB_8_PIN         43  // GPIO43 ADC3 — pin 54
-#define ADC_THUMB_9_PIN         44  // GPIO44 ADC4 — pin 55
-
-// -----------------------------------------------------------------------------
-// MCU2 — Buttons + Misc
-// -----------------------------------------------------------------------------
-#define SW5_PIN                 45  // GPIO45 ADC5 — pin 56
-#define VOLTAGE_SENS_PIN        46  // GPIO46 ADC6 — pin 57
-#define RGB_R_PIN               47  // GPIO47 ADC7 — pin 58
-
-// =============================================================================
-// UART Diagnostic Logging
-// ⚠️  GPIO0 on both MCUs is used for buttons (SW1/SW4)
-// ⚠️  No dedicated UART pins available — use USB stdio or SWD for debugging
-// ⚠️  UART pins set to 0xFF — revisit with client before Phase 2
-// =============================================================================
-#define UART0_TX_PIN            0xFF  // TBD — no free UART pins on MCU1
-#define UART0_RX_PIN            0xFF  // TBD
-#define MCU2_UART_TX_PIN        0xFF  // TBD — no free UART pins on MCU2
-#define MCU2_UART_RX_PIN        0xFF  // TBD
+// MCU2 has NO plain LED — only addressable RGB. No simple heartbeat possible.
 
 #endif // CONFIG_H
