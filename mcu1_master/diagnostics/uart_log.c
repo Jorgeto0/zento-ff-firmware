@@ -85,6 +85,13 @@ static void uart_write_eol(void) {
 // Call once at boot before any logging
 // -----------------------------------------------------------------------------
 void uart_log_init(void) {
+    // Skip UART init if pins not yet assigned
+    // v2 schematic: GPIO0 is SW1 — no free UART pins on MCU1
+    if (UART0_TX_PIN == 0xFF || UART0_RX_PIN == 0xFF) {
+        return;
+    }
+
+
     // Initialize UART0 at 115200 baud
     uart_init(LOG_UART, LOG_BAUD_RATE);
 
@@ -106,6 +113,8 @@ void uart_log_init(void) {
 // log_info()
 // -----------------------------------------------------------------------------
 void log_info(const char *msg) {
+    if (UART0_TX_PIN == 0xFF) return;
+
     uart_write_str("[INFO] ");
     uart_write_str(msg);
     uart_write_eol();
@@ -115,6 +124,8 @@ void log_info(const char *msg) {
 // log_warning()
 // -----------------------------------------------------------------------------
 void log_warning(const char *msg) {
+    if (UART0_TX_PIN == 0xFF) return;
+
     uart_write_str("[WARN] ");
     uart_write_str(msg);
     uart_write_eol();
@@ -124,6 +135,8 @@ void log_warning(const char *msg) {
 // log_error()
 // -----------------------------------------------------------------------------
 void log_error(const char *msg) {
+    if (UART0_TX_PIN == 0xFF) return;
+
     uart_write_str("[ERR]  ");
     uart_write_str(msg);
     uart_write_eol();
@@ -134,6 +147,8 @@ void log_error(const char *msg) {
 // Output format: [VAL]  label = 1234
 // -----------------------------------------------------------------------------
 void log_value(const char *label, int32_t value) {
+    if (UART0_TX_PIN == 0xFF) return;
+
     uart_write_str("[VAL]  ");
     uart_write_str(label);
     uart_write_str(" = ");
@@ -146,6 +161,8 @@ void log_value(const char *label, int32_t value) {
 // Output format: [HEX]  label = 0x0000AABB
 // -----------------------------------------------------------------------------
 void log_hex(const char *label, uint32_t value) {
+    if (UART0_TX_PIN == 0xFF) return;
+
     uart_write_str("[HEX]  ");
     uart_write_str(label);
     uart_write_str(" = ");
