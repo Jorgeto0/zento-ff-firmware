@@ -26,6 +26,11 @@
 #define WATCHDOG_TIMEOUT_MS 500
 
 // -----------------------------------------------------------------------------
+// LED heartbeat interval — matches MCU1 so both boards blink in step
+// -----------------------------------------------------------------------------
+#define HEARTBEAT_MS        500
+
+// -----------------------------------------------------------------------------
 // Forward declarations
 // -----------------------------------------------------------------------------
 static void system_clock_init(void);
@@ -72,10 +77,23 @@ int main(void) {
     // MCU2 is slave — it waits for commands from MCU1 via PIO bus
     // PIO bus driver added in next step
     // -------------------------------------------------------------------------
+    uint32_t last_blink_ms = to_ms_since_boot(get_absolute_time());
+    bool     led_on         = false;
+
     while (1) {
 
         // Feed watchdog — must happen every loop iteration
         watchdog_update();
+
+        // LED heartbeat — non-blocking, proves the loop is running
+        uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+        if ((now_ms - last_blink_ms) >= HEARTBEAT_MS) {
+            last_blink_ms = now_ms;
+            led_on = !led_on;
+            if (S_LED_G_PIN != 0xFF) {
+                gpio_put(S_LED_G_PIN, led_on);
+            }
+        }
 
         // Phase 1 placeholder — PIO slave driver added in next step
         // DO NOT add blocking calls here
@@ -154,6 +172,19 @@ static void gpio_init_all(void) {
     }
     // MCU2 I2C pins — direction set by I2C driver, not here
     // Listed for reference — initialized when I2C driver comes in Phase 2
+
+    // Status LEDs — output, start LOW
+    const uint8_t led_pins[] = {
+        S_LED_G_PIN, S_LED_R_PIN
+    };
+
+    for (uint8_t i = 0; i < 2; i++) {
+        if (led_pins[i] != 0xFF) {
+            gpio_init(led_pins[i]);
+            gpio_set_dir(led_pins[i], GPIO_OUT);
+            gpio_put(led_pins[i], 0);
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
