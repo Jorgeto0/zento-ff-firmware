@@ -90,7 +90,7 @@ const uint8_t usb_hid_report_descriptor[] = {
         HID_USAGE_PAGE      ( HID_USAGE_PAGE_DESKTOP ),
         HID_USAGE           ( HID_USAGE_DESKTOP_X   ),
         HID_LOGICAL_MIN_N   ( 0,     2              ),
-        HID_LOGICAL_MAX_N   ( 65535, 2              ),
+        HID_LOGICAL_MAX_N   ( 65535, 3              ),
         HID_REPORT_COUNT    ( 10                    ),
         HID_REPORT_SIZE     ( 16                    ),
         HID_INPUT           ( HID_DATA | HID_VARIABLE | HID_ABSOLUTE ),
