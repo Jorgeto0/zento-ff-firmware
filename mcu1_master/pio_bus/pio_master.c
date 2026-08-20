@@ -50,84 +50,52 @@ static bool bus_ready      = false;  // Set true after successful init
 // -----------------------------------------------------------------------------
 pio_bus_result_t pio_master_init(void) {
 
-    // Guard — skip if pins not assigned yet
-        if (MCU1_PIO1_PIN == 0xFF || MCU1_PIO2_PIN == 0xFF ||
-            MCU1_PIO3_PIN == 0xFF || MCU1_PIO_CLK_PIN == 0xFF) {
-        log_warning("PIO master init skipped — pins TBD in config.h");
-        return PIO_BUS_ERR_PIN_TBD;
-    }
+    // V1 pin roles — see bus_master.pio
+    //   PIO1    = data master -> slave  (OUT base for TX)
+    //   PIO2    = data slave -> master  (IN base for RX)
+    //   PIO_CLK = clock, master-driven in BOTH directions
+    const uint pin_tx  = MCU1_PIO1_PIN;
+    const uint pin_rx  = MCU1_PIO2_PIN;
+    const uint pin_clk = MCU1_PIO_CLK_PIN;
 
-    // Pin assignments from config.h
-    // ⚠️  PIO_BUS_PIN_0/1/2/3 must be assigned correctly when schematic arrives
-    // Convention we will use (confirm with schematic):
-    //   PIO_BUS_PIN_0 = DATA_TX (MCU1 → MCU2)
-    //   PIO_BUS_PIN_1 = CLK_TX  (MCU1 drives during TX)
-    //   PIO_BUS_PIN_2 = DATA_RX (MCU2 → MCU1)
-    //   PIO_BUS_PIN_3 = CLK_RX  (MCU2 drives during its TX)
-    //   ⚠️  CLK_RX must = DATA_RX + 1 (PIO constraint)
-    uint pin_data_tx = MCU1_PIO1_PIN;
-    uint pin_clk_tx  = MCU1_PIO2_PIN;
-    uint pin_data_rx = MCU1_PIO3_PIN;
-    uint pin_clk_rx  = MCU1_PIO_CLK_PIN;
-    // -------------------------------------------------------------------------
-    // Load TX program (SM0)
-    // -------------------------------------------------------------------------
+    // ---- TX state machine (SM0) ----
     offset_tx = pio_add_program(pio_instance, &bus_master_tx_program);
+    pio_sm_config tx_cfg = bus_master_tx_program_get_default_config(offset_tx);
 
-    pio_sm_config tx_config = bus_master_tx_program_get_default_config(offset_tx);
+    sm_config_set_out_pins(&tx_cfg, pin_tx, 1);
+    sm_config_set_sideset_pins(&tx_cfg, pin_clk);
+    sm_config_set_out_shift(&tx_cfg, false, true, 8);   // MSB first, autopull
+    sm_config_set_clkdiv(&tx_cfg, PIO_CLOCK_DIV);
 
-    // OUT pin = DATA_TX
-    sm_config_set_out_pins(&tx_config, pin_data_tx, 1);
+    pio_gpio_init(pio_instance, pin_tx);
+    pio_gpio_init(pio_instance, pin_clk);
+    pio_sm_set_consecutive_pindirs(pio_instance, sm_tx, pin_tx,  1, true);
+    pio_sm_set_consecutive_pindirs(pio_instance, sm_tx, pin_clk, 1, true);
 
-    // SIDESET pin = CLK_TX
-    sm_config_set_sideset_pins(&tx_config, pin_clk_tx);
+    pio_sm_init(pio_instance, sm_tx, offset_tx, &tx_cfg);
 
-    // Shift out MSB first, auto-pull at 8 bits
-    sm_config_set_out_shift(&tx_config, false, true, 8);
-
-    // Set clock divider — 1MHz bus
-    sm_config_set_clkdiv(&tx_config, PIO_CLOCK_DIV);
-
-    // Initialize GPIO directions for TX pins
-    pio_gpio_init(pio_instance, pin_data_tx);
-    pio_gpio_init(pio_instance, pin_clk_tx);
-    pio_sm_set_consecutive_pindirs(pio_instance, sm_tx, pin_data_tx, 1, true);
-    pio_sm_set_consecutive_pindirs(pio_instance, sm_tx, pin_clk_tx, 1, true);
-
-    // Apply config and enable SM0
-    pio_sm_init(pio_instance, sm_tx, offset_tx, &tx_config);
-    pio_sm_set_enabled(pio_instance, sm_tx, true);
-
-    // -------------------------------------------------------------------------
-    // Load RX program (SM1)
-    // -------------------------------------------------------------------------
+    // ---- RX state machine (SM1) ----
     offset_rx = pio_add_program(pio_instance, &bus_master_rx_program);
+    pio_sm_config rx_cfg = bus_master_rx_program_get_default_config(offset_rx);
 
-    pio_sm_config rx_config = bus_master_rx_program_get_default_config(offset_rx);
+    sm_config_set_in_pins(&rx_cfg, pin_rx);
+    sm_config_set_sideset_pins(&rx_cfg, pin_clk);       // master still clocks
+    sm_config_set_in_shift(&rx_cfg, false, true, 8);    // MSB first, autopush
+    sm_config_set_clkdiv(&rx_cfg, PIO_CLOCK_DIV);
 
-    // IN pin base = DATA_RX
-    // CLK_RX = DATA_RX + 1 (PIO constraint — wait pin 1 = base + 1)
-    sm_config_set_in_pins(&rx_config, pin_data_rx);
+    pio_gpio_init(pio_instance, pin_rx);
+    pio_sm_set_consecutive_pindirs(pio_instance, sm_rx, pin_rx,  1, false);
+    pio_sm_set_consecutive_pindirs(pio_instance, sm_rx, pin_clk, 1, true);
 
-    // Shift in MSB first, auto-push at 8 bits
-    sm_config_set_in_shift(&rx_config, false, true, 8);
+    pio_sm_init(pio_instance, sm_rx, offset_rx, &rx_cfg);
 
-    // Set clock divider — same as TX
-    sm_config_set_clkdiv(&rx_config, PIO_CLOCK_DIV);
-
-    // Initialize GPIO directions for RX pins
-    pio_gpio_init(pio_instance, pin_data_rx);
-    pio_gpio_init(pio_instance, pin_clk_rx);
-    pio_sm_set_consecutive_pindirs(pio_instance, sm_rx, pin_data_rx, 1, false);
-    pio_sm_set_consecutive_pindirs(pio_instance, sm_rx, pin_clk_rx, 1, false);
-
-    // Apply config and enable SM1
-    pio_sm_init(pio_instance, sm_rx, offset_rx, &rx_config);
-    pio_sm_set_enabled(pio_instance, sm_rx, true);
+    // Half-duplex: exactly one SM runs at a time, since both drive the clock.
+    // send() and receive() enable and disable them around each transfer.
+    pio_sm_set_enabled(pio_instance, sm_tx, false);
+    pio_sm_set_enabled(pio_instance, sm_rx, false);
 
     bus_ready = true;
-    log_info("PIO master init OK — bus ready at 1MHz");
-
+    log_info("PIO master init OK — half-duplex, master-driven clock");
     return PIO_BUS_OK;
 }
 
@@ -161,7 +129,10 @@ pio_bus_result_t pio_master_send(proto_m2s_t *packet) {
         sizeof(proto_m2s_t) - 2            // Exclude start_byte and crc8
     );
 
-    // Push every byte into TX FIFO
+    // Half-duplex: only the TX machine may touch the clock during a send
+    pio_sm_set_enabled(pio_instance, sm_rx, false);
+    pio_sm_set_enabled(pio_instance, sm_tx, true);
+
     const uint8_t *bytes = (const uint8_t *)packet;
     for (uint8_t i = 0; i < sizeof(proto_m2s_t); i++) {
         // pio_sm_put_blocking waits if FIFO full — safe, won't drop bytes
@@ -181,6 +152,11 @@ pio_bus_result_t pio_master_receive(proto_s2m_t *packet, uint32_t timeout_us) {
     if (!bus_ready) {
         return PIO_BUS_ERR_PIN_TBD;
     }
+
+    // Half-duplex: hand the clock to the RX machine
+    pio_sm_set_enabled(pio_instance, sm_tx, false);
+    pio_sm_clear_fifos(pio_instance, sm_rx);
+    pio_sm_set_enabled(pio_instance, sm_rx, true);
 
     uint8_t *bytes = (uint8_t *)packet;
     uint32_t start = time_us_32();
