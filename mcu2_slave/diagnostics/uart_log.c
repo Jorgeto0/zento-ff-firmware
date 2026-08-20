@@ -15,7 +15,7 @@
 // -----------------------------------------------------------------------------
 // Internal constants
 // -----------------------------------------------------------------------------
-#define LOG_UART        uart0
+#define LOG_UART        uart1
 #define LOG_BAUD_RATE   115200
 
 // -----------------------------------------------------------------------------
@@ -78,21 +78,18 @@ static void uart_write_eol(void) {
 // Both are 0xFF until schematic arrives — init skipped safely if TBD
 // -----------------------------------------------------------------------------
 void uart_log_init(void) {
-    // Skip UART init if pins not yet assigned
-    if (MCU2_UART_TX_PIN == 0xFF || MCU2_UART_RX_PIN == 0xFF) {
+    // TX only — Controller_Board_V1 has no spare RX pin on either MCU.
+    if (MCU2_UART_TX_PIN == 0xFF) {
         return;
     }
 
     uart_init(LOG_UART, LOG_BAUD_RATE);
-
     gpio_set_function(MCU2_UART_TX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(MCU2_UART_RX_PIN, GPIO_FUNC_UART);
 
     uart_set_hw_flow(LOG_UART, false, false);
     uart_set_format(LOG_UART, 8, 1, UART_PARITY_NONE);
 
-    // MCU2 boot marker — clearly different from MCU1 in terminal
-    uart_write_str("\r\n=== MCU2 UART LOG INIT ===\r\n");
+    uart_write_str("\r\n=== MCU2 UART LOG INIT (V1) ===\r\n");
 }
 
 // -----------------------------------------------------------------------------

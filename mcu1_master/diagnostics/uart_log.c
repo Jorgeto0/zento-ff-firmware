@@ -14,7 +14,7 @@
 // -----------------------------------------------------------------------------
 // Internal constants
 // -----------------------------------------------------------------------------
-#define LOG_UART        uart0
+#define LOG_UART        uart1
 #define LOG_BAUD_RATE   115200
 
 // -----------------------------------------------------------------------------
@@ -85,28 +85,18 @@ static void uart_write_eol(void) {
 // Call once at boot before any logging
 // -----------------------------------------------------------------------------
 void uart_log_init(void) {
-    // Skip UART init if pins not yet assigned
-    // v2 schematic: GPIO0 is SW1 — no free UART pins on MCU1
-    if (UART0_TX_PIN == 0xFF || UART0_RX_PIN == 0xFF) {
+    // TX only — Controller_Board_V1 has no spare RX pin on either MCU.
+    if (UART0_TX_PIN == 0xFF) {
         return;
     }
 
-
-    // Initialize UART0 at 115200 baud
     uart_init(LOG_UART, LOG_BAUD_RATE);
-
-    // Set GPIO function to UART
     gpio_set_function(UART0_TX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(UART0_RX_PIN, GPIO_FUNC_UART);
 
-    // Disable hardware flow control — not needed for diagnostics
     uart_set_hw_flow(LOG_UART, false, false);
-
-    // 8 data bits, 1 stop bit, no parity — standard serial
     uart_set_format(LOG_UART, 8, 1, UART_PARITY_NONE);
 
-    // Send boot marker — makes it easy to spot resets in terminal
-    uart_write_str("\r\n=== MCU1 UART LOG INIT ===\r\n");
+    uart_write_str("\r\n=== MCU1 UART LOG INIT (V1) ===\r\n");
 }
 
 // -----------------------------------------------------------------------------
