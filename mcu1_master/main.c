@@ -149,79 +149,59 @@ static void watchdog_init(void) {
 // -----------------------------------------------------------------------------
 static void gpio_init_all(void) {
 
-    // Motor PWM pins — output, start LOW (motors off)
-    const uint8_t pwm_pins[] = {
-        PWM_COIL1_PIN, PWM_COIL2_PIN, PWM_COIL3_PIN,
-        PWM_COIL4_PIN, PWM_COIL5_PIN, PWM_COIL6_PIN,
-        PWM_COIL7_PIN, PWM_COIL8_PIN, PWM_COIL9_PIN,
-        PWM_COIL10_PIN
+    // Motor PWM + DIR — output, start LOW so no coil is driven at boot
+    const uint8_t pwm_dir_pins[] = {
+        M_PWM_COIL1_PIN, M_DIR_COIL1_PIN,
+        M_PWM_COIL2_PIN, M_DIR_COIL2_PIN,
+        M_PWM_COIL3_PIN, M_DIR_COIL3_PIN,
+        M_PWM_COIL4_PIN, M_DIR_COIL4_PIN,
+        M_PWM_VC1_PIN,   M_DIR_VC1_PIN
     };
-
     for (uint8_t i = 0; i < 10; i++) {
-        if (pwm_pins[i] != 0xFF) {
-            gpio_init(pwm_pins[i]);
-            gpio_set_dir(pwm_pins[i], GPIO_OUT);
-            gpio_put(pwm_pins[i], 0);
-        }
+        gpio_init(pwm_dir_pins[i]);
+        gpio_set_dir(pwm_dir_pins[i], GPIO_OUT);
+        gpio_put(pwm_dir_pins[i], 0);
     }
 
-    // DIR pins — output, start LOW
-    const uint8_t dir_pins[] = {
-        DIR_COIL1_PIN, DIR_COIL2_PIN, DIR_COIL3_PIN,
-        DIR_COIL4_PIN, DIR_COIL5_PIN, DIR_COIL6_PIN,
-        DIR_COIL7_PIN, DIR_COIL8_PIN, DIR_COIL9_PIN,
-        DIR_COIL10_PIN
+    // DRV8873 chip selects — output, start HIGH (deselected)
+    const uint8_t cs_pins[] = {
+        M_SPI_CS_COIL1_PIN, M_SPI_CS_COIL2_PIN,
+        M_SPI_CS_COIL3_PIN, M_SPI_CS_COIL4_PIN,
+        M_SPI_CS_VC1_PIN
     };
-
-    for (uint8_t i = 0; i < 10; i++) {
-        if (dir_pins[i] != 0xFF) {
-            gpio_init(dir_pins[i]);
-            gpio_set_dir(dir_pins[i], GPIO_OUT);
-            gpio_put(dir_pins[i], 0);
-        }
+    for (uint8_t i = 0; i < 5; i++) {
+        gpio_init(cs_pins[i]);
+        gpio_set_dir(cs_pins[i], GPIO_OUT);
+        gpio_put(cs_pins[i], 1);
     }
 
-    // EN pins — output, start LOW (drivers disabled at boot)
-    
-    const uint8_t en_pins[] = {
-    EN_COIL_THUMB_LEFT_PIN,
-    EN_COIL_COIL_LEFT_PIN
+    // Sensor chip selects — output, start HIGH (deselected)
+    const uint8_t sensor_cs_pins[] = {
+        M_SPI0_CS_PIN, M_SPI1_CS_PIN, M_SPI1_CS_AS_PIN, SPI_DISPLAY_CS_PIN
     };
-
-    for (uint8_t i = 0; i < 2; i++) {
-        if (en_pins[i] != 0xFF) {
-            gpio_init(en_pins[i]);
-            gpio_set_dir(en_pins[i], GPIO_OUT);
-            gpio_put(en_pins[i], 0);
-        }
+    for (uint8_t i = 0; i < 4; i++) {
+        gpio_init(sensor_cs_pins[i]);
+        gpio_set_dir(sensor_cs_pins[i], GPIO_OUT);
+        gpio_put(sensor_cs_pins[i], 1);
     }
 
-    // Button pins — input, pull up
-    // MCU1 has SW1/SW2/SW3 only — SW4/SW5 belong to MCU2
-    const uint8_t sw_pins[] = {
-        SW1_PIN, SW2_PIN, SW3_PIN
-    };
-
-    for (uint8_t i = 0; i < 3; i++) {
-        if (sw_pins[i] != 0xFF) {
-            gpio_init(sw_pins[i]);
-            gpio_set_dir(sw_pins[i], GPIO_IN);
-            gpio_pull_up(sw_pins[i]);
-        }
+    // SW1 — input, pull up. SW2-SW5 live on the PCAL6416A expander.
+    // NOTE: SW1 is borrowed for UART1 TX during development.
+    if (UART0_TX_PIN != SW1_PIN) {
+        gpio_init(SW1_PIN);
+        gpio_set_dir(SW1_PIN, GPIO_IN);
+        gpio_pull_up(SW1_PIN);
     }
 
-    // Status LEDs — output, start LOW
-    const uint8_t led_pins[] = {
-        M_LED_G_PIN, M_LED_R_PIN
-    };
+    // PCAL6416A interrupt — input, pull up (active low)
+    gpio_init(INT_EXPANDER_PIN);
+    gpio_set_dir(INT_EXPANDER_PIN, GPIO_IN);
+    gpio_pull_up(INT_EXPANDER_PIN);
 
-    for (uint8_t i = 0; i < 2; i++) {
-        if (led_pins[i] != 0xFF) {
-            gpio_init(led_pins[i]);
-            gpio_set_dir(led_pins[i], GPIO_OUT);
-            gpio_put(led_pins[i], 0);
-        }
-    }
+    // Status LED — the only plain LED on the board
+    gpio_init(M_LED_G_PIN);
+    gpio_set_dir(M_LED_G_PIN, GPIO_OUT);
+    gpio_put(M_LED_G_PIN, 0);
 }
 
 // -----------------------------------------------------------------------------
