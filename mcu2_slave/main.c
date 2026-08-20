@@ -90,8 +90,8 @@ int main(void) {
         if ((now_ms - last_blink_ms) >= HEARTBEAT_MS) {
             last_blink_ms = now_ms;
             led_on = !led_on;
-            if (S_LED_G_PIN != 0xFF) {
-                gpio_put(S_LED_G_PIN, led_on);
+            if (MCU2_SPARE_PIN != 0xFF) {
+                gpio_put(MCU2_SPARE_PIN, led_on);
             }
         }
 
@@ -128,63 +128,51 @@ static void watchdog_init(void) {
 // -----------------------------------------------------------------------------
 static void gpio_init_all(void) {
 
-    
-// MCU2 motor PWM pins — all 0xFF until schematic arrives
-
-    const uint8_t pwm_pins[] = {
-    PWM_COIL5_PIN, PWM_COIL6_PIN, PWM_COIL7_PIN,
-    PWM_COIL8_PIN, PWM_COIL9_PIN
+    // Motor PWM + DIR — output, start LOW so no coil is driven at boot
+    const uint8_t pwm_dir_pins[] = {
+        S_PWM_COIL1_PIN, S_DIR_COIL1_PIN,
+        S_PWM_COIL2_PIN, S_DIR_COIL2_PIN,
+        S_PWM_COIL3_PIN, S_DIR_COIL3_PIN,
+        S_PWM_COIL4_PIN, S_DIR_COIL4_PIN,
+        S_PWM_VC1_PIN,   S_DIR_VC1_PIN
     };
-    
+    for (uint8_t i = 0; i < 10; i++) {
+        gpio_init(pwm_dir_pins[i]);
+        gpio_set_dir(pwm_dir_pins[i], GPIO_OUT);
+        gpio_put(pwm_dir_pins[i], 0);
+    }
+
+    // DRV8873 chip selects — output, start HIGH (deselected)
+    const uint8_t cs_pins[] = {
+        S_SPI_CS_COIL1_PIN, S_SPI_CS_COIL2_PIN,
+        S_SPI_CS_COIL3_PIN, S_SPI_CS_COIL4_PIN,
+        S_SPI_CS_VC1_PIN
+    };
     for (uint8_t i = 0; i < 5; i++) {
-        if (pwm_pins[i] != 0xFF) {
-            gpio_init(pwm_pins[i]);
-            gpio_set_dir(pwm_pins[i], GPIO_OUT);
-            gpio_put(pwm_pins[i], 0);
-        }
+        gpio_init(cs_pins[i]);
+        gpio_set_dir(cs_pins[i], GPIO_OUT);
+        gpio_put(cs_pins[i], 1);
     }
 
-    // MCU2 DIR pins
-
-    const uint8_t dir_pins[] = {
-    DIR_COIL5_PIN, DIR_COIL6_PIN, DIR_COIL7_PIN,
-    DIR_COIL8_PIN, DIR_COIL9_PIN
-    };
-
-    for (uint8_t i = 0; i < 5; i++) {
-        if (dir_pins[i] != 0xFF) {
-            gpio_init(dir_pins[i]);
-            gpio_set_dir(dir_pins[i], GPIO_OUT);
-            gpio_put(dir_pins[i], 0);
-        }
-    }
-
-    // MCU2 EN pin
-    const uint8_t en_pins[] = {
-        EN_COIL_COIL_RIGHT_PIN,
-        EN_COIL_THUMB_RIGHT_PIN
-    };
-
+    // Sensor chip selects — output, start HIGH (deselected)
+    const uint8_t sensor_cs_pins[] = { S_SPI0_CS_PIN, S_SPI1_CS_PIN };
     for (uint8_t i = 0; i < 2; i++) {
-        gpio_init(en_pins[i]);
-        gpio_set_dir(en_pins[i], GPIO_OUT);
-        gpio_put(en_pins[i], 0);
+        gpio_init(sensor_cs_pins[i]);
+        gpio_set_dir(sensor_cs_pins[i], GPIO_OUT);
+        gpio_put(sensor_cs_pins[i], 1);
     }
-    // MCU2 I2C pins — direction set by I2C driver, not here
-    // Listed for reference — initialized when I2C driver comes in Phase 2
 
-    // Status LEDs — output, start LOW
-    const uint8_t led_pins[] = {
-        S_LED_G_PIN, S_LED_R_PIN
-    };
-
+    // Encoder inputs — pull up
+    const uint8_t wheel_pins[] = { WHEEL_1_PIN, WHEEL_2_PIN };
     for (uint8_t i = 0; i < 2; i++) {
-        if (led_pins[i] != 0xFF) {
-            gpio_init(led_pins[i]);
-            gpio_set_dir(led_pins[i], GPIO_OUT);
-            gpio_put(led_pins[i], 0);
-        }
+        gpio_init(wheel_pins[i]);
+        gpio_set_dir(wheel_pins[i], GPIO_IN);
+        gpio_pull_up(wheel_pins[i]);
     }
+
+    // MCU2 has NO plain LED. RGB_L / RGB_R are addressable strips needing a
+    // bit-banged driver. FAULT lines are on the PCAL6416A, read over I2C.
+    // The heartbeat below writes to a pin with no LED — harmless, no-op.
 }
 
 // -----------------------------------------------------------------------------
