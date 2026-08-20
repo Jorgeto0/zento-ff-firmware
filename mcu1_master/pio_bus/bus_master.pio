@@ -1,66 +1,44 @@
 ;==============================================================================
-; mcu1_master/pio_bus/bus_master.pio — PIO Bus Master State Machines
-; Target: RP2350B PIO assembly
-; Bus: 1-bit serial, master controls clock
-; Two state machines:
-;   SM0 — TX (MCU1 sends data to MCU2)
-;   SM1 — RX (MCU1 receives data from MCU2)
-; Physical pins: assigned in C driver from config.h
+; mcu1_master/pio_bus/bus_master.pio — PIO Bus Master (V1 board)
+; Half-duplex, 1-bit serial. Master drives PIO_CLK in BOTH directions.
+;
+;   PIO1 (GPIO1) — data, master -> slave
+;   PIO2 (GPIO2) — data, slave -> master
+;   PIO_CLK (GPIO5) — clock, always master-driven
+;   PIO3/PIO4 (GPIO3/4) — reserved, unused
+;
+; Only one state machine runs at a time, so both may sideset GPIO5 safely.
 ;==============================================================================
 
 ;------------------------------------------------------------------------------
-; TX State Machine (SM0) — Master sends data
-; Sends 8 bits per byte, MSB first
-; Sideset pin = CLK — toggled automatically with each instruction
-;
-; Pin mapping (set in C driver):
-;   OUT pin  = DATA_TX pin (MCU1 → MCU2)
-;   SIDESET  = CLK pin
-;
-; Timing per bit:
-;   [CLK LOW]  data bit placed on DATA pin
-;   [CLK HIGH] slave reads data bit
-;   = 2 cycles per bit × 8 bits = 16 cycles per byte
+; TX — master sends. Data valid while CLK low, slave samples on CLK high.
+;   OUT base = PIO1, SIDESET = PIO_CLK
 ;------------------------------------------------------------------------------
 .program bus_master_tx
-.side_set 1                     ; 1 sideset pin = CLK
+.side_set 1
 
 .wrap_target
-    pull block          side 0  ; Pull byte from TX FIFO, CLK LOW
-                                ; 'block' = wait if FIFO empty
-    set x, 7           side 0  ; Load bit counter (8 bits = 7 downto 0)
-
+    pull block          side 0  ; next byte, CLK low
+    set x, 7            side 0  ; 8 bits
 bitloop:
-    out pins, 1        side 0  ; Shift 1 bit MSB first to DATA pin, CLK LOW
-    nop                side 1  ; CLK HIGH — slave reads bit here
-    jmp x-- bitloop    side 0  ; Decrement counter, loop if not done, CLK LOW
-.wrap                           ; Go back, get next byte
-
+    out pins, 1         side 0  ; drive bit, CLK still low
+    nop                 side 1  ; CLK high — slave samples here
+    jmp x-- bitloop     side 0  ; CLK low again
+.wrap
 
 ;------------------------------------------------------------------------------
-; RX State Machine (SM1) — Master receives data
-; Reads 8 bits per byte, MSB first
-; Waits for CLK HIGH from slave — slave drives clock during its TX
-;
-; Pin mapping (set in C driver):
-;   IN pin   = DATA_RX pin (MCU2 → MCU1)
-;   WAIT pin = CLK_RX pin (slave toggles this when sending)
-;
-; Note: During RX, MCU2 is the one toggling the clock
-;       MCU1 just waits and reads
+; RX — master receives. Slave drives its bit while CLK low; master samples
+; on CLK high. Master still owns the clock.
+;   IN base = PIO2, SIDESET = PIO_CLK
 ;------------------------------------------------------------------------------
 .program bus_master_rx
+.side_set 1
 
 .wrap_target
-    set x, 7                    ; Load bit counter
-
+    set x, 7            side 0  ; 8 bits
 bitloop:
-    wait 1 pin 1                ; Wait for CLK_RX HIGH (pin index 1)
-    in pins, 1                  ; Read 1 bit from DATA_RX into shift register
-    wait 0 pin 1                ; Wait for CLK_RX LOW before next bit
-    jmp x-- bitloop             ; Decrement counter, loop if not done
-
-    push noblock                ; Push complete byte to RX FIFO
-                                ; 'noblock' = don't stall if FIFO full
-                                ; (we handle overflow in C driver)
+    nop                 side 0  ; CLK low — slave presents its bit
+    in pins, 1          side 1  ; CLK high — sample it
+    jmp x-- bitloop     side 0  ; CLK low again
+    push noblock        side 0  ; byte complete
 .wrap
