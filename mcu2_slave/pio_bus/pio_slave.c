@@ -42,82 +42,53 @@ static bool bus_ready      = false;  // Set true after successful init
 // -----------------------------------------------------------------------------
 pio_slave_result_t pio_slave_init(void) {
 
-    // Guard — skip if pins not assigned yet
-        if (MCU2_PIO1_PIN == 0xFF || MCU2_PIO2_PIN == 0xFF ||
-            MCU2_PIO3_PIN == 0xFF || MCU2_PIO_CLK_PIN == 0xFF) {
-        log_warning("PIO slave init skipped — pins TBD in config.h");
-        return PIO_SLAVE_ERR_PIN_TBD;
-    }
+    // V1 pin roles — see bus_slave.pio
+    //   PIO1    = data master -> slave  (IN base for RX)
+    //   PIO2    = data slave -> master  (OUT base for TX)
+    //   PIO_CLK = clock, INPUT only on this side — slave never drives it
+    //
+    // Both programs use IN base = PIO1 so that 'wait pin 4' lands on
+    // PIO1 + 4 = PIO_CLK. This depends on GPIO1-5 being contiguous.
+    const uint pin_rx  = MCU2_PIO1_PIN;
+    const uint pin_tx  = MCU2_PIO2_PIN;
+    const uint pin_clk = MCU2_PIO_CLK_PIN;
 
-    // Pin assignments from config.h
-    // Convention (must match master side):
-    //   MCU2_PIO_BUS_PIN_0 = DATA_RX (MCU1 → MCU2)
-    //   MCU2_PIO_BUS_PIN_1 = CLK_RX  (master drives) — must = PIN_0 + 1
-    //   MCU2_PIO_BUS_PIN_2 = DATA_TX (MCU2 → MCU1)
-    //   MCU2_PIO_BUS_PIN_3 = CLK_TX  (slave drives during TX)
-    uint pin_data_rx = MCU2_PIO1_PIN;
-    uint pin_clk_rx  = MCU2_PIO2_PIN;
-    uint pin_data_tx = MCU2_PIO3_PIN;
-    uint pin_clk_tx  = MCU2_PIO_CLK_PIN;
-    // -------------------------------------------------------------------------
-    // Load RX program (SM0)
-    // -------------------------------------------------------------------------
+    // ---- RX state machine (SM0) ----
     offset_rx = pio_add_program(pio_instance, &bus_slave_rx_program);
+    pio_sm_config rx_cfg = bus_slave_rx_program_get_default_config(offset_rx);
 
-    pio_sm_config rx_config = bus_slave_rx_program_get_default_config(offset_rx);
+    sm_config_set_in_pins(&rx_cfg, pin_rx);
+    sm_config_set_in_shift(&rx_cfg, false, true, 8);    // MSB first, autopush
+    sm_config_set_clkdiv(&rx_cfg, PIO_CLOCK_DIV);
 
-    // IN pin base = DATA_RX
-    // CLK_RX = DATA_RX + 1 (PIO constraint)
-    sm_config_set_in_pins(&rx_config, pin_data_rx);
+    pio_gpio_init(pio_instance, pin_rx);
+    pio_gpio_init(pio_instance, pin_clk);
+    pio_sm_set_consecutive_pindirs(pio_instance, sm_rx, pin_rx,  1, false);
+    pio_sm_set_consecutive_pindirs(pio_instance, sm_rx, pin_clk, 1, false);
 
-    // Shift in MSB first, auto-push at 8 bits
-    sm_config_set_in_shift(&rx_config, false, true, 8);
+    pio_sm_init(pio_instance, sm_rx, offset_rx, &rx_cfg);
 
-    // Clock divider — must match master
-    sm_config_set_clkdiv(&rx_config, PIO_CLOCK_DIV);
-
-    // GPIO directions — RX pins are inputs
-    pio_gpio_init(pio_instance, pin_data_rx);
-    pio_gpio_init(pio_instance, pin_clk_rx);
-    pio_sm_set_consecutive_pindirs(pio_instance, sm_rx, pin_data_rx, 1, false);
-    pio_sm_set_consecutive_pindirs(pio_instance, sm_rx, pin_clk_rx, 1, false);
-
-    // Apply config and enable SM0
-    pio_sm_init(pio_instance, sm_rx, offset_rx, &rx_config);
-    pio_sm_set_enabled(pio_instance, sm_rx, true);
-
-    // -------------------------------------------------------------------------
-    // Load TX program (SM1)
-    // -------------------------------------------------------------------------
+    // ---- TX state machine (SM1) ----
     offset_tx = pio_add_program(pio_instance, &bus_slave_tx_program);
+    pio_sm_config tx_cfg = bus_slave_tx_program_get_default_config(offset_tx);
 
-    pio_sm_config tx_config = bus_slave_tx_program_get_default_config(offset_tx);
+    sm_config_set_out_pins(&tx_cfg, pin_tx, 1);
+    sm_config_set_in_pins(&tx_cfg, pin_rx);             // for the wait offset
+    sm_config_set_out_shift(&tx_cfg, false, true, 8);   // MSB first, autopull
+    sm_config_set_clkdiv(&tx_cfg, PIO_CLOCK_DIV);
 
-    // OUT pin = DATA_TX
-    sm_config_set_out_pins(&tx_config, pin_data_tx, 1);
+    pio_gpio_init(pio_instance, pin_tx);
+    pio_sm_set_consecutive_pindirs(pio_instance, sm_tx, pin_tx, 1, true);
 
-    // SIDESET pin = CLK_TX
-    sm_config_set_sideset_pins(&tx_config, pin_clk_tx);
+    pio_sm_init(pio_instance, sm_tx, offset_tx, &tx_cfg);
 
-    // Shift out MSB first, auto-pull at 8 bits
-    sm_config_set_out_shift(&tx_config, false, true, 8);
-
-    // Clock divider — must match master
-    sm_config_set_clkdiv(&tx_config, PIO_CLOCK_DIV);
-
-    // GPIO directions — TX pins are outputs
-    pio_gpio_init(pio_instance, pin_data_tx);
-    pio_gpio_init(pio_instance, pin_clk_tx);
-    pio_sm_set_consecutive_pindirs(pio_instance, sm_tx, pin_data_tx, 1, true);
-    pio_sm_set_consecutive_pindirs(pio_instance, sm_tx, pin_clk_tx, 1, true);
-
-    // Apply config and enable SM1
-    pio_sm_init(pio_instance, sm_tx, offset_tx, &tx_config);
-    pio_sm_set_enabled(pio_instance, sm_tx, true);
+    // RX idles enabled — the slave must be listening whenever the master
+    // decides to talk. TX is enabled only while replying.
+    pio_sm_set_enabled(pio_instance, sm_rx, true);
+    pio_sm_set_enabled(pio_instance, sm_tx, false);
 
     bus_ready = true;
-    log_info("PIO slave init OK — bus ready at 1MHz");
-
+    log_info("PIO slave init OK — listening, clock is master-driven");
     return PIO_SLAVE_OK;
 }
 
@@ -130,6 +101,10 @@ pio_slave_result_t pio_slave_receive(proto_m2s_t *packet, uint32_t timeout_us) {
     if (!bus_ready) {
         return PIO_SLAVE_ERR_PIN_TBD;
     }
+
+    // Half-duplex: back to listening
+    pio_sm_set_enabled(pio_instance, sm_tx, false);
+    pio_sm_set_enabled(pio_instance, sm_rx, true);
 
     uint8_t *bytes = (uint8_t *)packet;
     uint32_t start = time_us_32();
@@ -195,7 +170,10 @@ pio_slave_result_t pio_slave_send(proto_s2m_t *packet) {
         sizeof(proto_s2m_t) - 2
     );
 
-    // Push every byte into TX FIFO
+    // Half-duplex: stop listening, present the reply instead
+    pio_sm_set_enabled(pio_instance, sm_rx, false);
+    pio_sm_set_enabled(pio_instance, sm_tx, true);
+
     const uint8_t *bytes = (const uint8_t *)packet;
     for (uint8_t i = 0; i < sizeof(proto_s2m_t); i++) {
         pio_sm_put_blocking(pio_instance, sm_tx, (uint32_t)bytes[i] << 24);
