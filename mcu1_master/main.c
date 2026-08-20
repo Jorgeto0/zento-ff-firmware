@@ -13,6 +13,7 @@
 #include "config.h"
 #include "diagnostics/uart_log.h"
 #include "usb_hid/hid.h"
+#include "pio_bus/pio_master.h"
 
 // -----------------------------------------------------------------------------
 // System clock frequency
@@ -67,7 +68,12 @@ int main(void) {
     gpio_init_all();
     log_info("GPIO init complete");
 
-    // Step 5 — Start USB HID stack (before watchdog so tusb_init is never interrupted)
+    // Step 5 — Start the inter-MCU PIO bus (master owns the clock)
+    if (pio_master_init() != PIO_BUS_OK) {
+        log_warning("PIO master init failed — bus unavailable");
+    }
+
+    // Step 6 — Start USB HID stack (before watchdog so tusb_init is never interrupted)
     hid_init();
 
     // Step 6 — Start watchdog (must feed it in main loop from this point on)

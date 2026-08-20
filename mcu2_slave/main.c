@@ -13,6 +13,7 @@
 #include "hardware/gpio.h"
 #include "config.h"
 #include "diagnostics/uart_log.h"
+#include "pio_bus/pio_slave.h"
 
 // -----------------------------------------------------------------------------
 // System clock — must match MCU1 exactly
@@ -65,7 +66,12 @@ int main(void) {
     gpio_init_all();
     log_info("GPIO init complete");
 
-    // Step 5 — Start watchdog
+    // Step 5 — Start the inter-MCU PIO bus (slave listens)
+    if (pio_slave_init() != PIO_SLAVE_OK) {
+        log_warning("PIO slave init failed — bus unavailable");
+    }
+
+    // Step 6 — Start watchdog
     watchdog_init();
     log_info("Watchdog started — 500ms timeout");
 
