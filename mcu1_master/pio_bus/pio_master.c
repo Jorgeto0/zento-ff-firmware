@@ -48,6 +48,21 @@ static bool bus_ready      = false;  // Set true after successful init
 // -----------------------------------------------------------------------------
 // pio_master_init()
 // -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// wait_tx_drained()
+// pio_sm_put_blocking() only queues into the FIFO — the state machine is still
+// shifting bits out when it returns. Switching direction here would truncate
+// the packet. Wait for the FIFO to empty, then for the last byte to clock out.
+// 8 bits x 2 PIO cycles at 2MHz = 8us; 20us is a safe margin.
+// -----------------------------------------------------------------------------
+static void wait_tx_drained(void) {
+    while (!pio_sm_is_tx_fifo_empty(pio_instance, sm_tx)) {
+        tight_loop_contents();
+    }
+    busy_wait_us(20);
+}
+
 pio_bus_result_t pio_master_init(void) {
 
     // V1 pin roles — see bus_master.pio
@@ -153,7 +168,8 @@ pio_bus_result_t pio_master_receive(proto_s2m_t *packet, uint32_t timeout_us) {
         return PIO_BUS_ERR_PIN_TBD;
     }
 
-    // Half-duplex: hand the clock to the RX machine
+    // Half-duplex: let TX finish shifting before taking the clock away
+    wait_tx_drained();
     pio_sm_set_enabled(pio_instance, sm_tx, false);
     pio_sm_clear_fifos(pio_instance, sm_rx);
     pio_sm_set_enabled(pio_instance, sm_rx, true);

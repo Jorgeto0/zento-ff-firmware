@@ -84,8 +84,9 @@ pio_slave_result_t pio_slave_init(void) {
 
     // RX idles enabled — the slave must be listening whenever the master
     // decides to talk. TX is enabled only while replying.
+    // Both enabled permanently — see note in pio_slave_send()
     pio_sm_set_enabled(pio_instance, sm_rx, true);
-    pio_sm_set_enabled(pio_instance, sm_tx, false);
+    pio_sm_set_enabled(pio_instance, sm_tx, true);
 
     bus_ready = true;
     log_info("PIO slave init OK — listening, clock is master-driven");
@@ -101,10 +102,6 @@ pio_slave_result_t pio_slave_receive(proto_m2s_t *packet, uint32_t timeout_us) {
     if (!bus_ready) {
         return PIO_SLAVE_ERR_PIN_TBD;
     }
-
-    // Half-duplex: back to listening
-    pio_sm_set_enabled(pio_instance, sm_tx, false);
-    pio_sm_set_enabled(pio_instance, sm_rx, true);
 
     uint8_t *bytes = (uint8_t *)packet;
     uint32_t start = time_us_32();
@@ -170,10 +167,10 @@ pio_slave_result_t pio_slave_send(proto_s2m_t *packet) {
         sizeof(proto_s2m_t) - 2
     );
 
-    // Half-duplex: stop listening, present the reply instead
-    pio_sm_set_enabled(pio_instance, sm_rx, false);
-    pio_sm_set_enabled(pio_instance, sm_tx, true);
-
+    // Both slave SMs stay enabled — no gating needed here. Neither drives
+    // the clock, so they cannot conflict, and 'pull block' stalls TX
+    // whenever its FIFO is empty. Disabling RX during a send would drop
+    // the first byte of the master's next packet.
     const uint8_t *bytes = (const uint8_t *)packet;
     for (uint8_t i = 0; i < sizeof(proto_s2m_t); i++) {
         pio_sm_put_blocking(pio_instance, sm_tx, (uint32_t)bytes[i] << 24);
