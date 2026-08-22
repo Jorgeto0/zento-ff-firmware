@@ -89,6 +89,9 @@ int main(void) {
     // All work done via state machines and flags — no blocking calls
     // -------------------------------------------------------------------------
     uint32_t last_blink_ms = to_ms_since_boot(get_absolute_time());
+    uint32_t bus_test_ms    = to_ms_since_boot(get_absolute_time());
+    uint16_t bus_ping_count = 0;
+    bool     bus_alive      = false;   // drives the LED rate
     bool     led_on         = false;
 
     while (1) {
@@ -100,9 +103,33 @@ int main(void) {
         // Drive the USB stack — must run every iteration, never blocks
         hid_task();
 
+        // PIO bus test — ping the slave every 100ms.
+        // Result drives the LED: fast strobe = link up, slow = link down.
+        if (pio_master_is_ready() &&
+            (to_ms_since_boot(get_absolute_time()) - bus_test_ms) >= 100) {
+            bus_test_ms = to_ms_since_boot(get_absolute_time());
+
+            proto_m2s_t out = {0};
+            out.coil_target[0] = (int16_t)bus_ping_count++;
+
+            bus_alive = false;
+            if (pio_master_send(&out) == PIO_BUS_OK) {
+                proto_s2m_t in;
+                if (pio_master_receive(&in, 2000) == PIO_BUS_OK) {
+                    bus_alive = true;
+                    log_value("BUS OK, slave stick_x", in.stick_x);
+                }
+            }
+            if (!bus_alive) {
+                log_info("BUS no reply from slave");
+            }
+        }
+
         // LED heartbeat — non-blocking, proves the loop is running
         uint32_t now_ms = to_ms_since_boot(get_absolute_time());
-        if ((now_ms - last_blink_ms) >= HEARTBEAT_MS) {
+        // 8Hz strobe when the inter-MCU link is up, 1Hz when it is not
+        uint32_t blink_ms = bus_alive ? 60 : HEARTBEAT_MS;
+        if ((now_ms - last_blink_ms) >= blink_ms) {
             last_blink_ms = now_ms;
             led_on = !led_on;
             if (M_LED_G_PIN != 0xFF) {

@@ -86,10 +86,23 @@ int main(void) {
     uint32_t last_blink_ms = to_ms_since_boot(get_absolute_time());
     bool     led_on         = false;
 
+    uint16_t bus_rx_count = 0;
+
     while (1) {
 
         // Feed watchdog — must happen every loop iteration
         watchdog_update();
+
+        // PIO bus test — reply to whatever the master sends
+        if (pio_slave_is_ready()) {
+            proto_m2s_t in;
+            if (pio_slave_receive(&in, 1000) == PIO_SLAVE_OK) {
+                log_value("BUS RX, target0", in.coil_target[0]);
+                proto_s2m_t out = {0};
+                out.stick_x = (int16_t)(0x1000 + bus_rx_count++);
+                pio_slave_send(&out);
+            }
+        }
 
         // LED heartbeat — non-blocking, proves the loop is running
         uint32_t now_ms = to_ms_since_boot(get_absolute_time());
