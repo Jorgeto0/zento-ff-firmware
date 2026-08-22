@@ -35,7 +35,11 @@ static bool bus_ready      = false;  // Set true after successful init
 // System clock 125MHz, 2 PIO cycles per bit, target 1MHz bus
 // Divider = 125,000,000 / 2,000,000 = 62.5
 // -----------------------------------------------------------------------------
-#define PIO_CLOCK_DIV       62.5f
+// Slave runs 4x faster than the master. The master holds PIO_CLK high for a
+// single PIO cycle, and the slave's bit loop is 4 instructions against the
+// master's 3 — at matched rates the slave drifts and misses clock edges.
+// Verified in simulation: matched rates lose the data, 4x recovers it exactly.
+#define PIO_CLOCK_DIV       15.625f
 
 // -----------------------------------------------------------------------------
 // pio_slave_init()
