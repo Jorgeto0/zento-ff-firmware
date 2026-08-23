@@ -97,7 +97,8 @@ int main(void) {
         if (pio_slave_is_ready()) {
             proto_m2s_t in;
             if (pio_slave_receive(&in, 1000) == PIO_SLAVE_OK) {
-                log_value("BUS RX, target0", in.coil_target[0]);
+                // NO logging before the reply — a UART write at 115200
+                // blocks ~2ms, longer than the master waits for us.
                 proto_s2m_t out = {0};
                 out.stick_x = (int16_t)(0x1000 + bus_rx_count++);
                 pio_slave_send(&out);

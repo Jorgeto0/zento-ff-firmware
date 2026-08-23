@@ -115,7 +115,7 @@ int main(void) {
             bus_alive = false;
             if (pio_master_send(&out) == PIO_BUS_OK) {
                 proto_s2m_t in;
-                if (pio_master_receive(&in, 2000) == PIO_BUS_OK) {
+                if (pio_master_receive(&in, 20000) == PIO_BUS_OK) {
                     bus_alive = true;
                     log_value("BUS OK, slave stick_x", in.stick_x);
                 }
