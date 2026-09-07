@@ -45,6 +45,7 @@
 //   4 blinks     PIO SPI init failed
 // -----------------------------------------------------------------------------
 static tmag_result_t tmag_status = TMAG_ERR_SPI;
+static as_result_t   as_status   = AS_ERR_SPI;
 
 // -----------------------------------------------------------------------------
 // Forward declarations
@@ -82,7 +83,7 @@ int main(void) {
 
     // Step 5 — Bring up the TMAG5170 hall sensor on SPI0
     tmag_status = tmag_init();
-    as5047_init();
+    as_status = as5047_init();
 
     // Step 6 — Start the inter-MCU PIO bus (master owns the clock)
     if (pio_master_init() != PIO_BUS_OK) {
@@ -186,15 +187,18 @@ int main(void) {
         // LED heartbeat — non-blocking, proves the loop is running
         uint32_t now_ms = to_ms_since_boot(get_absolute_time());
         // TMAG OK: fast strobe. Otherwise blink an error count, then pause.
-        if (tmag_status == TMAG_OK) {
+        if (tmag_status == TMAG_OK && as_status == AS_OK) {
             if ((now_ms - last_blink_ms) >= 60) {
                 last_blink_ms = now_ms;
                 led_on = !led_on;
                 gpio_put(M_LED_G_PIN, led_on);
             }
         } else {
-            // 1 = SPI init failed -> 4 blinks, 2 = CRC -> 2, 3 = no reply -> 3
-            uint8_t count = (tmag_status == TMAG_ERR_SPI) ? 4 : (uint8_t)tmag_status;
+            // 2 blinks TMAG bad, 3 AS5047 bad, 4 both bad
+            uint8_t count;
+            if (tmag_status != TMAG_OK && as_status != AS_OK)      count = 4;
+            else if (tmag_status != TMAG_OK)                       count = 2;
+            else                                                   count = 3;
             uint32_t period = (uint32_t)count * 400u + 1200u;   // blinks + pause
             uint32_t t = now_ms % period;
             bool on = (t < (uint32_t)count * 400u) && ((t % 400u) < 200u);
