@@ -12,6 +12,7 @@ cmake_minimum_required(VERSION 3.17)
 add_executable(mcu1_master
     main.c
     diagnostics/uart_log.c
+    sensors/tmag5170_crc.c
     pio_bus/pio_master.c
     usb_hid/hid_descriptors.c
     usb_hid/hid.c
@@ -41,6 +42,7 @@ target_link_libraries(mcu1_master
 target_include_directories(mcu1_master PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/shared
+    ${CMAKE_CURRENT_SOURCE_DIR}/sensors
 )
 
 # -----------------------------------------------------------------------------
@@ -51,7 +53,7 @@ target_include_directories(mcu1_master PRIVATE
 # UART stdio enabled for diagnostics
 # -----------------------------------------------------------------------------
 pico_generate_pio_header(mcu1_master ${CMAKE_CURRENT_SOURCE_DIR}/pio_bus/bus_master.pio)
-pico_enable_stdio_usb(mcu1_master 1)
+pico_enable_stdio_usb(mcu1_master 0)
 pico_enable_stdio_uart(mcu1_master 1)
 
 # -----------------------------------------------------------------------------
