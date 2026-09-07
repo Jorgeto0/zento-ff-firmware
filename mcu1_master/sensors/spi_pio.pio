@@ -1,0 +1,33 @@
+;==============================================================================
+; mcu1_master/sensors/spi_pio.pio — bit-banged SPI master, mode 0
+;
+; Needed because no SPI bus on Controller_Board_V1 lines up with the RP2350
+; hardware SPI pin mux. Verified against pico-sdk io_bank0.h: on the hall
+; sensor bus GPIO16 is SPI0_RX but feeds the sensor's SDI input, and GPIO19 is
+; SPI0_TX but reads its SDO output. PIO can drive any pin in either direction,
+; so the board works as wired with no rework.
+;
+; Mode 0 per the TMAG5170 datasheet SBASAF4 section 7.5.2.1: "output data on
+; the SDO pin transitions on the falling edge of the SCK and input data on the
+; SDI pin is latched on the rising edge." CPOL=0, CPHA=0.
+;
+; Timing, one bit per loop:
+;   side 0 : clock low, MOSI updated
+;   side 1 : clock high, MISO sampled on the same instruction
+;
+; Bit count is set by the C driver via the X register before each transfer, so
+; one program covers 8, 16 and 32-bit frames.
+;
+; Pin setup, done in C:
+;   OUT base = MOSI, IN base = MISO, SIDESET = SCK
+; Chip select is driven by the C side, not here, so it can stay low across a
+; whole multi-byte frame as the TMAG requires (7.5.2.2).
+;==============================================================================
+
+.program spi_mode0
+.side_set 1
+
+.wrap_target
+    out pins, 1     side 0      ; drive MOSI while the clock is low
+    in pins, 1      side 1      ; raise clock, sample MISO on the rising edge
+.wrap
