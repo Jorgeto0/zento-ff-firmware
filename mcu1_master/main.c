@@ -36,6 +36,16 @@
 #define HEARTBEAT_MS        500
 
 // -----------------------------------------------------------------------------
+// TMAG link status, shown on the green LED so the board can be checked
+// without a UART adapter:
+//   fast strobe  link OK
+//   2 blinks     CRC mismatch
+//   3 blinks     no reply, nothing driving MISO
+//   4 blinks     PIO SPI init failed
+// -----------------------------------------------------------------------------
+static tmag_result_t tmag_status = TMAG_ERR_SPI;
+
+// -----------------------------------------------------------------------------
 // Forward declarations
 // -----------------------------------------------------------------------------
 static void system_clock_init(void);
@@ -70,7 +80,7 @@ int main(void) {
     log_info("GPIO init complete");
 
     // Step 5 — Bring up the TMAG5170 hall sensor on SPI0
-    tmag_init();
+    tmag_status = tmag_init();
 
     // Step 6 — Start the inter-MCU PIO bus (master owns the clock)
     if (pio_master_init() != PIO_BUS_OK) {
@@ -153,14 +163,20 @@ int main(void) {
 
         // LED heartbeat — non-blocking, proves the loop is running
         uint32_t now_ms = to_ms_since_boot(get_absolute_time());
-        // 8Hz strobe when the inter-MCU link is up, 1Hz when it is not
-        uint32_t blink_ms = bus_ever_alive ? 60 : HEARTBEAT_MS;
-        if ((now_ms - last_blink_ms) >= blink_ms) {
-            last_blink_ms = now_ms;
-            led_on = !led_on;
-            if (M_LED_G_PIN != 0xFF) {
+        // TMAG OK: fast strobe. Otherwise blink an error count, then pause.
+        if (tmag_status == TMAG_OK) {
+            if ((now_ms - last_blink_ms) >= 60) {
+                last_blink_ms = now_ms;
+                led_on = !led_on;
                 gpio_put(M_LED_G_PIN, led_on);
             }
+        } else {
+            // 1 = SPI init failed -> 4 blinks, 2 = CRC -> 2, 3 = no reply -> 3
+            uint8_t count = (tmag_status == TMAG_ERR_SPI) ? 4 : (uint8_t)tmag_status;
+            uint32_t period = (uint32_t)count * 400u + 1200u;   // blinks + pause
+            uint32_t t = now_ms % period;
+            bool on = (t < (uint32_t)count * 400u) && ((t % 400u) < 200u);
+            gpio_put(M_LED_G_PIN, on);
         }
 
         // DO NOT add blocking calls here
