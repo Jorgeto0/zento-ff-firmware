@@ -15,6 +15,7 @@ add_executable(mcu1_master
     sensors/tmag5170_crc.c
     sensors/tmag5170.c
     sensors/spi_pio.c
+    sensors/spi_pio_m1.c
     pio_bus/pio_master.c
     usb_hid/hid_descriptors.c
     usb_hid/hid.c
