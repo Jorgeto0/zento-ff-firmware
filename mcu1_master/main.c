@@ -179,6 +179,13 @@ int main(void) {
             if (as5047_read_diag(&diag) == AS_OK) {
                 hid_report.coil_current[1] = diag.agc;
             }
+            // Sensor status in the last telemetry slot, so it can be read
+            // as a number in the browser instead of counting LED blinks:
+            //   0 both OK, 1 TMAG failed, 2 AS5047 failed, 3 both failed
+            hid_report.coil_current[9] =
+                (uint16_t)((tmag_status != TMAG_OK ? 1u : 0u) |
+                           (as_status   != AS_OK   ? 2u : 0u));
+
             hid_send_primary(&hid_report);
             {
             }
