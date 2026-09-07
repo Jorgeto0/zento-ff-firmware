@@ -57,6 +57,7 @@ target_include_directories(mcu1_master PRIVATE
 # -----------------------------------------------------------------------------
 pico_generate_pio_header(mcu1_master ${CMAKE_CURRENT_SOURCE_DIR}/pio_bus/bus_master.pio)
 pico_generate_pio_header(mcu1_master ${CMAKE_CURRENT_SOURCE_DIR}/sensors/spi_pio.pio)
+pico_generate_pio_header(mcu1_master ${CMAKE_CURRENT_SOURCE_DIR}/sensors/spi_pio_m1.pio)
 pico_enable_stdio_usb(mcu1_master 0)
 pico_enable_stdio_uart(mcu1_master 1)
 

@@ -1,0 +1,33 @@
+;==============================================================================
+; mcu1_master/sensors/spi_pio_m1.pio — bit-banged SPI master, mode 1
+;
+; For the AS5047P. Datasheet DS000324 v2-00: "The AS5047P SPI uses mode=1
+; (CPOL=0, CPHA=1) to exchange data... samples MOSI data on the falling edge
+; of CLK." So the master changes MOSI on the rising edge and samples MISO on
+; the falling edge.
+;
+; The clock must idle LOW between frames: tL requires CLK low for 350 ns
+; before CS falls. A two-instruction loop would stall with the clock high, so
+; this uses an explicit pull with a bit counter and stalls on a side-0
+; instruction instead.
+;
+; Frame width comes from the C side via the X register, so the same program
+; serves the AS5047P's 16-bit frames and anything else in mode 1.
+;
+; Pin setup, done in C: OUT base = MOSI, IN base = MISO, SIDESET = SCK.
+; CS is driven by the C side so it can frame a whole transaction.
+;==============================================================================
+
+.program spi_mode1
+.side_set 1
+
+.wrap_target
+    pull block          side 0      ; stall HERE, clock low, waiting for data
+    out x, 32           side 0      ; first word is the bit count minus one
+    pull block          side 0      ; second word is the data to send
+bitloop:
+    out pins, 1         side 1      ; rising edge, change MOSI
+    in pins, 1          side 0      ; falling edge, sample MISO
+    jmp x-- bitloop     side 0      ; next bit, clock stays low
+    push block          side 0      ; hand the received word to the C side
+.wrap
