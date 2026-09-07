@@ -107,6 +107,7 @@ int main(void) {
     uint32_t last_blink_ms = to_ms_since_boot(get_absolute_time());
     uint32_t bus_test_ms    = to_ms_since_boot(get_absolute_time());
     uint32_t tmag_ms        = to_ms_since_boot(get_absolute_time());
+    hid_primary_report_t hid_report = {0};
     uint16_t bus_ping_count = 0;
     bool     bus_alive      = false;   // drives the LED rate
     bool     bus_ever_alive = false;   // latched — never goes back down
@@ -160,10 +161,25 @@ int main(void) {
                 log_value("TMAG X", m.x);
                 log_value("TMAG Y", m.y);
                 log_value("TMAG Z", m.z);
+                hid_report.stick1_x = m.x;
+                hid_report.stick1_y = m.y;
             }
             uint16_t ang;
             if (as5047_read_angle(&ang) == AS_OK) {
                 log_value("AS5047 angle", ang);
+                hid_report.coil_current[0] = ang;
+            }
+
+            // Push sensor data to the PC. Stick 1 comes from the TMAG here;
+            // stick 2 arrives from MCU2 over the PIO bus. The spare telemetry
+            // slots carry the AS5047 angle and its AGC, so the host can watch
+            // for magnetic interference from the coils.
+            as_diag_t diag;
+            if (as5047_read_diag(&diag) == AS_OK) {
+                hid_report.coil_current[1] = diag.agc;
+            }
+            hid_send_primary(&hid_report);
+            {
             }
         }
 
