@@ -15,6 +15,7 @@
 #include "usb_hid/hid.h"
 #include "pio_bus/pio_master.h"
 #include "sensors/tmag5170.h"
+#include "sensors/as5047p.h"
 
 // -----------------------------------------------------------------------------
 // System clock frequency
@@ -81,6 +82,7 @@ int main(void) {
 
     // Step 5 — Bring up the TMAG5170 hall sensor on SPI0
     tmag_status = tmag_init();
+    as5047_init();
 
     // Step 6 — Start the inter-MCU PIO bus (master owns the clock)
     if (pio_master_init() != PIO_BUS_OK) {
@@ -158,6 +160,10 @@ int main(void) {
                 log_value("TMAG X", m.x);
                 log_value("TMAG Y", m.y);
                 log_value("TMAG Z", m.z);
+            }
+            uint16_t ang;
+            if (as5047_read_angle(&ang) == AS_OK) {
+                log_value("AS5047 angle", ang);
             }
         }
 
