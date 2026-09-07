@@ -6,13 +6,18 @@
 #include "tmag5170.h"
 #include "config.h"
 #include "diagnostics/uart_log.h"
-#include "hardware/spi.h"
+#include "spi_pio.h"
 #include "hardware/gpio.h"
 #include "pico/time.h"
 
-#define TMAG_SPI        spi0
 #define TMAG_SPI_HZ     4000000u    // well under the 10 MHz limit in 6.8
 
+// Hardware SPI cannot be used here. On this board GPIO16 carries M_SPI0_SDI,
+// which drives the sensor's SDI input, but the RP2350 mux only offers
+// SPI0_RX on GPIO16 (checked in pico-sdk io_bank0.h). GPIO19 has the mirror
+// problem. PIO drives either pin in either direction, so the board works as
+// wired with no rework.
+static spi_pio_t bus;
 static bool ready = false;
 
 // -----------------------------------------------------------------------------
@@ -30,21 +35,14 @@ static uint32_t build_frame(bool read, uint8_t addr, uint16_t data) {
 
 // Full-duplex 32-bit exchange. CS must stay low for the whole frame, 7.5.2.2.
 static uint32_t xfer(uint32_t tx) {
-    uint8_t out[4] = {
-        (uint8_t)(tx >> 24), (uint8_t)(tx >> 16),
-        (uint8_t)(tx >> 8),  (uint8_t)tx
-    };
-    uint8_t in[4] = {0};
-
+    // CS stays low for the whole 32-bit frame, required by 7.5.2.2
     gpio_put(M_SPI0_CS_PIN, 0);
-    spi_write_read_blocking(TMAG_SPI, out, in, 4);
+    uint32_t rx = spi_pio_xfer(&bus, tx);
     gpio_put(M_SPI0_CS_PIN, 1);
 
     // 6.8: CS must stay high at least tw_cs (100 ns) between frames
     busy_wait_us(1);
-
-    return ((uint32_t)in[0] << 24) | ((uint32_t)in[1] << 16) |
-           ((uint32_t)in[2] << 8)  | (uint32_t)in[3];
+    return rx;
 }
 
 tmag_result_t tmag_read_reg(uint8_t addr, uint16_t *out) {
@@ -89,13 +87,18 @@ float tmag_to_mt(int16_t raw, uint16_t range_mt) {
 }
 
 tmag_result_t tmag_init(void) {
-    // SPI mode 0 per 7.5.2.1
-    spi_init(TMAG_SPI, TMAG_SPI_HZ);
-    spi_set_format(TMAG_SPI, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
-
-    gpio_set_function(M_SPI0_SCK_PIN, GPIO_FUNC_SPI);
-    gpio_set_function(M_SPI0_SDO_PIN, GPIO_FUNC_SPI);   // MCU out, sensor SDI
-    gpio_set_function(M_SPI0_SDI_PIN, GPIO_FUNC_SPI);   // MCU in,  sensor SDO
+    // PIO SPI, mode 0 per 7.5.2.1, 32-bit frames per 7.5.2.
+    // Net names are from the sensor's point of view: M_SPI0_SDI is the
+    // sensor's input, so it is the MCU's MOSI. M_SPI0_SDO is its output,
+    // so it is the MCU's MISO.
+    if (!spi_pio_init(&bus, pio1, 0,
+                      M_SPI0_SDI_PIN,   // MOSI, into the sensor's SDI
+                      M_SPI0_SDO_PIN,   // MISO, from the sensor's SDO
+                      M_SPI0_SCK_PIN,
+                      TMAG_SPI_HZ, 32)) {
+        log_error("TMAG PIO SPI init failed");
+        return TMAG_ERR_SPI;
+    }
 
     // CS driven by hand so it can stay low across the full 32-bit frame
     gpio_init(M_SPI0_CS_PIN);
