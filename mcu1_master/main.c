@@ -14,6 +14,7 @@
 #include "diagnostics/uart_log.h"
 #include "usb_hid/hid.h"
 #include "pio_bus/pio_master.h"
+#include "sensors/tmag5170.h"
 
 // -----------------------------------------------------------------------------
 // System clock frequency
@@ -68,7 +69,10 @@ int main(void) {
     gpio_init_all();
     log_info("GPIO init complete");
 
-    // Step 5 — Start the inter-MCU PIO bus (master owns the clock)
+    // Step 5 — Bring up the TMAG5170 hall sensor on SPI0
+    tmag_init();
+
+    // Step 6 — Start the inter-MCU PIO bus (master owns the clock)
     if (pio_master_init() != PIO_BUS_OK) {
         log_warning("PIO master init failed — bus unavailable");
     }
@@ -90,6 +94,7 @@ int main(void) {
     // -------------------------------------------------------------------------
     uint32_t last_blink_ms = to_ms_since_boot(get_absolute_time());
     uint32_t bus_test_ms    = to_ms_since_boot(get_absolute_time());
+    uint32_t tmag_ms        = to_ms_since_boot(get_absolute_time());
     uint16_t bus_ping_count = 0;
     bool     bus_alive      = false;   // drives the LED rate
     bool     bus_ever_alive = false;   // latched — never goes back down
@@ -132,6 +137,17 @@ int main(void) {
             }
             if (!bus_alive) {
                 log_info("BUS silent — no bytes from slave");
+            }
+        }
+
+        // Sensor read at 50Hz, logged so the values can be checked
+        if ((to_ms_since_boot(get_absolute_time()) - tmag_ms) >= 20) {
+            tmag_ms = to_ms_since_boot(get_absolute_time());
+            tmag_xyz_t m;
+            if (tmag_read_xyz(&m) == TMAG_OK) {
+                log_value("TMAG X", m.x);
+                log_value("TMAG Y", m.y);
+                log_value("TMAG Z", m.z);
             }
         }
 
