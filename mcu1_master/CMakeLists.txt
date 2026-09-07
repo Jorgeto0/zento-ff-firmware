@@ -13,6 +13,7 @@ add_executable(mcu1_master
     main.c
     diagnostics/uart_log.c
     sensors/tmag5170_crc.c
+    sensors/tmag5170.c
     pio_bus/pio_master.c
     usb_hid/hid_descriptors.c
     usb_hid/hid.c
@@ -29,6 +30,7 @@ target_link_libraries(mcu1_master
     hardware_uart
     hardware_watchdog
     hardware_pio
+    hardware_spi
     pico_float_pico
     pico_double_pico
     tinyusb_device
