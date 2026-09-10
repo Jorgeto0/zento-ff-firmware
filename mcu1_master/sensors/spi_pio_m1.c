@@ -10,6 +10,14 @@ bool spi_m1_init(spi_m1_t *bus, PIO pio, uint sm,
                  uint pin_mosi, uint pin_miso, uint pin_sck,
                  uint32_t clk_hz) {
 
+    // RP2350B: each PIO block sees only 32 GPIOs at a time. Base 16 gives
+    // this block GPIO16-47, covering the sensors (16-23) and the coil bus
+    // (38-40). Datasheet GPIOBASE register: only 0 and 16 are supported.
+    if (pio_set_gpio_base(pio, 16) != PICO_OK) {
+        bus->ready = false;
+        return false;
+    }
+
     if (!pio_can_add_program(pio, &spi_mode1_program)) {
         bus->ready = false;
         return false;
