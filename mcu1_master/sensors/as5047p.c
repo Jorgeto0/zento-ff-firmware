@@ -46,6 +46,11 @@ as_result_t as5047_read_reg(uint16_t addr, uint16_t *out) {
     frame(with_parity((uint16_t)(0x4000u | (addr & 0x3FFF))));
     uint16_t rx = frame(with_parity((uint16_t)(0x4000u | AS_REG_NOP)));
 
+    // A floating MISO reads 0x0000, whose parity is even and whose EF bit is
+    // clear, so it would pass both checks below and look like real data.
+    // Neither all-zeros nor all-ones is a legitimate reply, so reject both.
+    if (rx == 0x0000u || rx == 0xFFFFu) return AS_ERR_DEAD;
+
     if (!parity_ok(rx))      return AS_ERR_PARITY;
     if (rx & 0x4000u)        return AS_ERR_FLAG;   // EF, Figure 14
 
@@ -104,6 +109,15 @@ as_result_t as5047_init(void) {
         ready = false;
         log_value("AS5047 link failed, err", (int32_t)r);
         return r;
+    }
+
+    // LF is set once the internal offset loop has finished regulating,
+    // which only happens on a real, powered sensor. Zero here after tpon
+    // means nothing is answering.
+    if (!d.lf) {
+        ready = false;
+        log_error("AS5047 not responding, LF clear");
+        return AS_ERR_DEAD;
     }
 
     log_value("AS5047 AGC", d.agc);

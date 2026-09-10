@@ -47,6 +47,7 @@ typedef enum {
     AS_ERR_SPI      = 1,   // bus not initialised
     AS_ERR_PARITY   = 2,   // reply parity failed
     AS_ERR_FLAG     = 3,   // EF set, sensor rejected the previous command
+    AS_ERR_DEAD     = 4,   // all-zero or all-one frame, bus floating
 } as_result_t;
 
 typedef struct {
