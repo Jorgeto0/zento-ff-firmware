@@ -220,6 +220,13 @@ int main(void) {
             // client see each coil appear as it is wired up.
             hid_report.coil_current[8] = drv_present_mask();
 
+            // Raw error codes so a failure says which stage broke rather than
+            // just that it did. Low byte TMAG, high byte AS5047.
+            //   TMAG: 1 SPI init, 2 CRC mismatch, 3 no reply
+            //   AS:   1 SPI init, 2 parity, 3 error flag, 4 bus floating
+            hid_report.coil_current[7] =
+                (uint16_t)((uint8_t)tmag_status | ((uint8_t)as_status << 8));
+
             hid_send_primary(&hid_report);
             {
             }
