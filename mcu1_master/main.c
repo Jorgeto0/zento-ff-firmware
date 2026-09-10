@@ -17,6 +17,7 @@
 #include "sensors/tmag5170.h"
 #include "sensors/as5047p.h"
 #include "motor/drv8873.h"
+#include "motor/coil_pwm.h"
 
 // -----------------------------------------------------------------------------
 // System clock frequency
@@ -86,6 +87,7 @@ int main(void) {
     tmag_status = tmag_init();
     as_status = as5047_init();
     drv_init_all();
+    coil_pwm_init();
 
     // Step 6 — Start the inter-MCU PIO bus (master owns the clock)
     if (pio_master_init() != PIO_BUS_OK) {
@@ -111,6 +113,7 @@ int main(void) {
     uint32_t bus_test_ms    = to_ms_since_boot(get_absolute_time());
     uint32_t tmag_ms        = to_ms_since_boot(get_absolute_time());
     hid_primary_report_t hid_report = {0};
+    uint32_t last_force_ms = 0;      // 0 means no command yet
     uint16_t bus_ping_count = 0;
     bool     bus_alive      = false;   // drives the LED rate
     bool     bus_ever_alive = false;   // latched — never goes back down
@@ -124,6 +127,31 @@ int main(void) {
 
         // Drive the USB stack — must run every iteration, never blocks
         hid_task();
+
+        // Force commands from the host. Report ID 2, byte 0 is the command,
+        // 0x10 followed by five signed 16-bit values, little-endian, for
+        // coils 1-4 then the voice coil.
+        #define CMD_SET_FORCES 0x10
+        if (hid_get_config_received()) {
+            hid_config_report_t cfg;
+            hid_get_last_config(&cfg);
+            if (cfg.command == CMD_SET_FORCES) {
+                for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                    int16_t f = (int16_t)((uint16_t)cfg.payload[i*2] |
+                                          ((uint16_t)cfg.payload[i*2+1] << 8));
+                    coil_set_force((drv_id_t)i, f);
+                }
+                last_force_ms = to_ms_since_boot(get_absolute_time());
+            }
+        }
+
+        // Safety: stop the coils if the host goes quiet. A closed browser tab
+        // should not leave them energised.
+        if (last_force_ms != 0 &&
+            (to_ms_since_boot(get_absolute_time()) - last_force_ms) > 500) {
+            coil_all_off();
+            last_force_ms = 0;
+        }
 
         // PIO bus test — ping the slave every 100ms.
         // Result drives the LED: fast strobe = link up, slow = link down.
