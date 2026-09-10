@@ -16,6 +16,7 @@
 #include "pio_bus/pio_master.h"
 #include "sensors/tmag5170.h"
 #include "sensors/as5047p.h"
+#include "motor/drv8873.h"
 
 // -----------------------------------------------------------------------------
 // System clock frequency
@@ -84,6 +85,7 @@ int main(void) {
     // Step 5 — Bring up the TMAG5170 hall sensor on SPI0
     tmag_status = tmag_init();
     as_status = as5047_init();
+    drv_init_all();
 
     // Step 6 — Start the inter-MCU PIO bus (master owns the clock)
     if (pio_master_init() != PIO_BUS_OK) {
@@ -185,6 +187,10 @@ int main(void) {
             hid_report.coil_current[9] =
                 (uint16_t)((tmag_status != TMAG_OK ? 1u : 0u) |
                            (as_status   != AS_OK   ? 2u : 0u));
+
+            // Which motor drivers answered, bit 0 = coil 1. Lets the
+            // client see each coil appear as it is wired up.
+            hid_report.coil_current[8] = drv_present_mask();
 
             hid_send_primary(&hid_report);
             {
