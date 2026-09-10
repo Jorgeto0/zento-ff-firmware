@@ -170,4 +170,17 @@
 
 // MCU2 has NO plain LED — only addressable RGB. No simple heartbeat possible.
 
+// -----------------------------------------------------------------------------
+// Build target guard.
+// This board is an RP2350B with 48 GPIOs. If the build is configured for an
+// RP2350A the SDK masks bit 5 off every PIO pin number, so GPIO38/39/40
+// silently become GPIO6/7/8 and the coil SPI drives the display pins instead.
+// That cost us days. Fail the build loudly rather than let it happen again.
+// -----------------------------------------------------------------------------
+#include "hardware/platform_defs.h"
+_Static_assert(NUM_BANK0_GPIOS == 48,
+    "Wrong board: this design needs an RP2350B (48 GPIOs). Check PICO_BOARD.");
+_Static_assert(PICO_PIO_USE_GPIO_BASE == 1,
+    "PICO_PIO_USE_GPIO_BASE must be 1 or PIO cannot reach GPIO32-47.");
+
 #endif // CONFIG_H
