@@ -19,6 +19,7 @@
 // wired with no rework.
 static spi_pio_t bus;
 static bool ready = false;
+uint32_t tmag_last_rx = 0;   // raw reply, exposed for diagnostics
 
 // -----------------------------------------------------------------------------
 // Frame layout, 7.5.2:
@@ -49,6 +50,7 @@ tmag_result_t tmag_read_reg(uint8_t addr, uint16_t *out) {
     if (!ready) return TMAG_ERR_SPI;
 
     uint32_t rx = xfer(build_frame(true, addr, 0));
+    tmag_last_rx = rx;   // keep the raw frame so a failure can be diagnosed
 
     // All ones or all zeros means nothing is driving SDO
     if (rx == 0xFFFFFFFFu) return TMAG_ERR_NO_REPLY;

@@ -13,7 +13,11 @@ bool spi_m1_init(spi_m1_t *bus, PIO pio, uint sm,
     // RP2350B: each PIO block sees only 32 GPIOs at a time. Base 16 gives
     // this block GPIO16-47, covering the sensors (16-23) and the coil bus
     // (38-40). Datasheet GPIOBASE register: only 0 and 16 are supported.
-    if (pio_set_gpio_base(pio, 16) != PICO_OK) {
+    // pio_set_gpio_base fails with PICO_ERROR_INVALID_STATE once any program
+    // is loaded into the block (see pio.c: it checks _used_instruction_space).
+    // Several buses share pio1, so only the first one can set it. Skip if it
+    // is already correct rather than treating that as a failure.
+    if (pio_get_gpio_base(pio) != 16 && pio_set_gpio_base(pio, 16) != PICO_OK) {
         bus->ready = false;
         return false;
     }
@@ -51,7 +55,13 @@ bool spi_m1_init(spi_m1_t *bus, PIO pio, uint sm,
     pio_sm_set_consecutive_pindirs(pio, sm, pin_miso, 1, false);
     pio_sm_set_consecutive_pindirs(pio, sm, pin_sck,  1, true);
 
-    pio_sm_init(pio, sm, bus->offset, &c);
+    // Returns an error if the config's pins are unreachable from this
+    // block's GPIO base. Ignoring it leaves the SM silently misconfigured,
+    // which looks exactly like dead hardware.
+    if (pio_sm_init(pio, sm, bus->offset, &c) != PICO_OK) {
+        bus->ready = false;
+        return false;
+    }
     pio_sm_set_enabled(pio, sm, true);
 
     bus->ready = true;

@@ -218,6 +218,13 @@ int main(void) {
 
             // Which motor drivers answered, bit 0 = coil 1. Lets the
             // client see each coil appear as it is wired up.
+            // Raw TMAG reply, top and bottom halves. All zeros means nothing
+            // is driving MISO. Anything else means data is arriving and the
+            // problem is in how we parse it.
+            extern uint32_t tmag_last_rx;
+            hid_report.coil_current[5] = (uint16_t)(tmag_last_rx >> 16);
+            hid_report.coil_current[6] = (uint16_t)(tmag_last_rx & 0xFFFF);
+
             hid_report.coil_current[8] = drv_present_mask();
 
             // Raw error codes so a failure says which stage broke rather than
