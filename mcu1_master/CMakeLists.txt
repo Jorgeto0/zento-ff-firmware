@@ -17,6 +17,7 @@ add_executable(mcu1_master
     sensors/spi_pio.c
     sensors/spi_pio_m1.c
     sensors/as5047p.c
+    motor/drv8873.c
     pio_bus/pio_master.c
     usb_hid/hid_descriptors.c
     usb_hid/hid.c
@@ -48,6 +49,7 @@ target_include_directories(mcu1_master PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/shared
     ${CMAKE_CURRENT_SOURCE_DIR}/sensors
+    ${CMAKE_CURRENT_SOURCE_DIR}/motor
 )
 
 # -----------------------------------------------------------------------------
