@@ -225,6 +225,15 @@ int main(void) {
             hid_report.coil_current[5] = (uint16_t)(tmag_last_rx >> 16);
             hid_report.coil_current[6] = (uint16_t)(tmag_last_rx & 0xFFFF);
 
+            // Raw reply from each of the five drivers, slots 0-4.
+            // 0x0000  nothing driving SDO -> chip select or device not alive
+            // 0xFFFF  line stuck high
+            // bits 15 and 14 both set -> device is alive and answering
+            extern uint16_t drv_last_rx[];
+            for (uint8_t d = 0; d < 5; d++) {
+                hid_report.coil_current[d] = drv_last_rx[d];
+            }
+
             hid_report.coil_current[8] = drv_present_mask();
 
             // Raw error codes so a failure says which stage broke rather than

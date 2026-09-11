@@ -16,6 +16,7 @@
 static spi_m1_t bus;
 static bool     ready = false;
 static uint8_t  present = 0;
+uint16_t drv_last_rx[DRV_COUNT] = {0};   // raw reply per driver, for diagnosis
 
 // Chip selects, one per driver, in drv_id_t order
 static const uint8_t cs_pin[DRV_COUNT] = {
@@ -31,6 +32,7 @@ static uint16_t frame(drv_id_t id, uint16_t tx) {
     gpio_put(cs_pin[id], 0);
     uint16_t rx = (uint16_t)spi_m1_xfer(&bus, tx, 16);
     gpio_put(cs_pin[id], 1);
+    drv_last_rx[id] = rx;   // keep every reply so a failure can be diagnosed
     busy_wait_us(1);
     return rx;
 }
@@ -85,8 +87,22 @@ drv_result_t drv_init_all(void) {
     present = 0;
 
     for (uint8_t i = 0; i < DRV_COUNT; i++) {
+        // One dummy frame to settle the shared bus, then a few attempts.
+        // In testing only the last driver in this loop answered, which is the
+        // signature of the bus needing a transaction or two before it is
+        // reliable rather than four devices being absent.
         uint8_t ic1;
-        if (drv_read_reg((drv_id_t)i, DRV_REG_IC1, &ic1, NULL) != DRV_OK) {
+        drv_read_reg((drv_id_t)i, DRV_REG_FAULT, NULL, NULL);
+
+        bool answered = false;
+        for (uint8_t attempt = 0; attempt < 3 && !answered; attempt++) {
+            if (drv_read_reg((drv_id_t)i, DRV_REG_IC1, &ic1, NULL) == DRV_OK) {
+                answered = true;
+            } else {
+                busy_wait_us(100);
+            }
+        }
+        if (!answered) {
             continue;               // not fitted, or not answering
         }
         present |= (uint8_t)(1u << i);
