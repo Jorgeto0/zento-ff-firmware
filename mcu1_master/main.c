@@ -114,6 +114,9 @@ int main(void) {
     uint32_t tmag_ms        = to_ms_since_boot(get_absolute_time());
     hid_primary_report_t hid_report = {0};
     uint32_t last_force_ms = 0;      // 0 means no command yet
+    uint16_t cfg_rx_count = 0;      // output reports received, any kind
+    uint16_t cfg_cmd_seen = 0;      // first byte of the last one
+    int16_t  vc_force_dbg = 0;      // force value parsed for VC1
     uint16_t bus_ping_count = 0;
     bool     bus_alive      = false;   // drives the LED rate
     bool     bus_ever_alive = false;   // latched — never goes back down
@@ -135,11 +138,14 @@ int main(void) {
         if (hid_get_config_received()) {
             hid_config_report_t cfg;
             hid_get_last_config(&cfg);
+            cfg_rx_count++;
+            cfg_cmd_seen = cfg.command;
             if (cfg.command == CMD_SET_FORCES) {
                 for (uint8_t i = 0; i < DRV_COUNT; i++) {
                     int16_t f = (int16_t)((uint16_t)cfg.payload[i*2] |
                                           ((uint16_t)cfg.payload[i*2+1] << 8));
                     coil_set_force((drv_id_t)i, f);
+                    if (i == DRV_VC1) vc_force_dbg = f;
                 }
                 last_force_ms = to_ms_since_boot(get_absolute_time());
             }
@@ -233,6 +239,26 @@ int main(void) {
             for (uint8_t d = 0; d < 5; d++) {
                 hid_report.coil_current[d] = drv_last_rx[d];
             }
+
+            // Did any output report arrive, and what was its first byte?
+            hid_report.coil_current[9] = cfg_rx_count;
+            hid_report.coil_current[6] = cfg_cmd_seen;
+
+            // Full chain diagnosis for the VC1 coil:
+            //   0 force value we parsed      1 PWM level we wrote
+            //   2 U19 FAULT register         3 U19 DIAG register
+            //   4 U19 IC3 (output enables)   6 last command byte
+            //   9 output reports received
+            hid_report.coil_current[0] = (uint16_t)vc_force_dbg;
+            hid_report.coil_current[1] = coil_get_level(DRV_VC1);
+
+            uint8_t drv_fault = 0, drv_diag = 0, drv_ic3 = 0;
+            drv_read_reg(DRV_VC1, DRV_REG_FAULT, &drv_fault, NULL);
+            drv_read_reg(DRV_VC1, DRV_REG_DIAG,  &drv_diag,  NULL);
+            drv_read_reg(DRV_VC1, DRV_REG_IC3,   &drv_ic3,   NULL);
+            hid_report.coil_current[2] = drv_fault;
+            hid_report.coil_current[3] = drv_diag;
+            hid_report.coil_current[4] = drv_ic3;
 
             hid_report.coil_current[8] = drv_present_mask();
 

@@ -29,4 +29,7 @@ void coil_set_force(drv_id_t id, int16_t force);
 // Stop every coil. Called on fault or loss of host contact.
 void coil_all_off(void);
 
+// Read back the PWM level last written, for diagnosis.
+uint16_t coil_get_level(drv_id_t id);
+
 #endif // COIL_PWM_H
