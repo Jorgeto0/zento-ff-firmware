@@ -117,6 +117,7 @@ int main(void) {
     uint16_t cfg_rx_count = 0;      // output reports received, any kind
     uint16_t cfg_cmd_seen = 0;      // first byte of the last one
     int16_t  vc_force_dbg = 0;      // force value parsed for VC1
+    uint16_t post_drive_diag = 0;   // FAULT|DIAG read right after driving
     uint16_t bus_ping_count = 0;
     bool     bus_alive      = false;   // drives the LED rate
     bool     bus_ever_alive = false;   // latched — never goes back down
@@ -147,6 +148,16 @@ int main(void) {
                     coil_set_force((drv_id_t)i, f);
                     if (i == DRV_VC1) vc_force_dbg = f;
                 }
+
+                // Open load is only detectable once the bridge has actually
+                // driven, so re-read the fault registers here rather than
+                // while idle. Datasheet 7.3.2: OLD asserts on open load.
+                // Give the driver a moment to evaluate before reading.
+                busy_wait_us(500);
+                uint8_t pf = 0, pd = 0;
+                drv_read_reg(DRV_VC1, DRV_REG_FAULT, &pf, NULL);
+                drv_read_reg(DRV_VC1, DRV_REG_DIAG,  &pd, NULL);
+                post_drive_diag = (uint16_t)(pf | ((uint16_t)pd << 8));
                 last_force_ms = to_ms_since_boot(get_absolute_time());
             }
         }
@@ -259,6 +270,7 @@ int main(void) {
             hid_report.coil_current[2] = drv_fault;
             hid_report.coil_current[3] = drv_diag;
             hid_report.coil_current[4] = drv_ic3;
+            hid_report.coil_current[5] = post_drive_diag;
 
             hid_report.coil_current[8] = drv_present_mask();
 

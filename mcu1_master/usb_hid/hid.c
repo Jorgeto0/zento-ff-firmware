@@ -178,13 +178,26 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     (void)instance;
     (void)report_type;
 
-    if (report_id == REPORT_ID_CONFIG &&
-        bufsize <= sizeof(hid_config_report_t)) {
+    // TinyUSB only fills report_id for control-transfer SET_REPORT. For a
+    // report arriving on the interrupt OUT endpoint it passes report_id = 0
+    // and leaves the ID as the first byte of the buffer. Handle both, or
+    // everything sent from a host tool is silently dropped.
+    uint8_t  id  = report_id;
+    uint8_t const *payload = buffer;
+    uint16_t len = bufsize;
 
-        // Copy into last_config buffer
+    if (id == 0 && bufsize > 0) {
+        id      = buffer[0];       // id_from_buffer
+        payload = buffer + 1;
+        len     = (uint16_t)(bufsize - 1);
+    }
+
+    if (id == REPORT_ID_CONFIG &&
+        len <= sizeof(hid_config_report_t)) {
+
         uint8_t *dst = (uint8_t *)&last_config;
-        for (uint16_t i = 0; i < bufsize; i++) {
-            dst[i] = buffer[i];
+        for (uint16_t i = 0; i < len; i++) {
+            dst[i] = payload[i];
         }
 
         config_received = true;
