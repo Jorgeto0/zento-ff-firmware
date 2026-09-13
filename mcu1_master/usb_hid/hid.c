@@ -185,24 +185,27 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     // hid_config_report_t begins with report_id, so the OUT endpoint buffer
     // already matches the struct byte for byte. The control path needs the
     // ID putting back.
+    // Two delivery paths, per TinyUSB's header and issue #2929:
+    //   OUT endpoint       report_id = 0, ID still present as buffer[0]
+    //   control SET_REPORT  report_id set, ID already stripped
+    // Normalise to "payload points at the command byte", then store with the
+    // ID written separately so hid_config_report_t stays aligned.
     uint8_t id = report_id;
+    uint8_t const *payload = buffer;
+    uint16_t len = bufsize;
 
     if (id == 0 && bufsize > 0) {
-        id = buffer[0];
-        if (id == REPORT_ID_CONFIG && bufsize <= sizeof(hid_config_report_t)) {
-            uint8_t *dst = (uint8_t *)&last_config;
-            for (uint16_t i = 0; i < bufsize; i++) dst[i] = buffer[i];
-        } else {
-            return;
-        }
-    } else if (id == REPORT_ID_CONFIG &&
-               bufsize + 1u <= sizeof(hid_config_report_t)) {
-        last_config.report_id = id;
-        uint8_t *dst = (uint8_t *)&last_config + 1;
-        for (uint16_t i = 0; i < bufsize; i++) dst[i] = buffer[i];
-    } else {
-        return;
+        id      = buffer[0];
+        payload = buffer + 1;
+        len     = (uint16_t)(bufsize - 1);
     }
+
+    if (id != REPORT_ID_CONFIG) return;
+    if (len > sizeof(hid_config_report_t) - 1) len = sizeof(hid_config_report_t) - 1;
+
+    last_config.report_id = id;
+    uint8_t *dst = (uint8_t *)&last_config + 1;
+    for (uint16_t i = 0; i < len; i++) dst[i] = payload[i];
 
     config_received = true;
     log_info("USB HID config packet received");
