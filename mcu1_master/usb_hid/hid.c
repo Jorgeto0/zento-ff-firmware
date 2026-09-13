@@ -178,31 +178,34 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     (void)instance;
     (void)report_type;
 
-    // TinyUSB only fills report_id for control-transfer SET_REPORT. For a
-    // report arriving on the interrupt OUT endpoint it passes report_id = 0
-    // and leaves the ID as the first byte of the buffer. Handle both, or
-    // everything sent from a host tool is silently dropped.
-    uint8_t  id  = report_id;
-    uint8_t const *payload = buffer;
-    uint16_t len = bufsize;
+    // TinyUSB delivers this two different ways, confirmed against its own
+    // header and issue #2929:
+    //   OUT endpoint      report_id = 0, the ID is still buffer[0]
+    //   control SET_REPORT report_id set, the ID has been stripped
+    // hid_config_report_t begins with report_id, so the OUT endpoint buffer
+    // already matches the struct byte for byte. The control path needs the
+    // ID putting back.
+    uint8_t id = report_id;
 
     if (id == 0 && bufsize > 0) {
-        id      = buffer[0];       // id_from_buffer
-        payload = buffer + 1;
-        len     = (uint16_t)(bufsize - 1);
-    }
-
-    if (id == REPORT_ID_CONFIG &&
-        len <= sizeof(hid_config_report_t)) {
-
-        uint8_t *dst = (uint8_t *)&last_config;
-        for (uint16_t i = 0; i < len; i++) {
-            dst[i] = payload[i];
+        id = buffer[0];
+        if (id == REPORT_ID_CONFIG && bufsize <= sizeof(hid_config_report_t)) {
+            uint8_t *dst = (uint8_t *)&last_config;
+            for (uint16_t i = 0; i < bufsize; i++) dst[i] = buffer[i];
+        } else {
+            return;
         }
-
-        config_received = true;
-        log_info("USB HID config packet received");
+    } else if (id == REPORT_ID_CONFIG &&
+               bufsize + 1u <= sizeof(hid_config_report_t)) {
+        last_config.report_id = id;
+        uint8_t *dst = (uint8_t *)&last_config + 1;
+        for (uint16_t i = 0; i < bufsize; i++) dst[i] = buffer[i];
+    } else {
+        return;
     }
+
+    config_received = true;
+    log_info("USB HID config packet received");
 }
 
 // -----------------------------------------------------------------------------
