@@ -272,6 +272,10 @@ int main(void) {
             hid_report.coil_current[4] = drv_ic3;
             hid_report.coil_current[5] = post_drive_diag;
 
+            // Which TMAG wiring worked: 0 neither, 1 normal, 2 swapped
+            extern uint8_t tmag_wiring;
+            hid_report.coil_current[4] = tmag_wiring;
+
             hid_report.coil_current[8] = drv_present_mask();
 
             // Raw error codes so a failure says which stage broke rather than

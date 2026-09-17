@@ -20,6 +20,12 @@
 #define COIL_PWM_HZ     25000u
 #define COIL_PWM_WRAP   4999u       // 125 MHz / 5000 = 25 kHz
 
+// The buck converter that should produce the 6V rail is bypassed on the
+// current hardware, so the drivers see 12V instead. The coils are rated for
+// 6V, so duty is capped at 50% to keep the average within rating. Raise this
+// only when the bypass is removed.
+#define COIL_MAX_DUTY   (COIL_PWM_WRAP / 2u)
+
 void coil_pwm_init(void);
 
 // force: -32768 to +32767. Sign sets direction, magnitude sets duty.

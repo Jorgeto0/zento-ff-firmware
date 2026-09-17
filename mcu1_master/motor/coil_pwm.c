@@ -39,6 +39,7 @@ void coil_set_force(drv_id_t id, int16_t force) {
 
     gpio_put(dir_pin[id], reverse ? 1 : 0);
     uint16_t lvl = (uint16_t)((mag * COIL_PWM_WRAP) / 32767u);
+    if (lvl > COIL_MAX_DUTY) lvl = COIL_MAX_DUTY;   // 12V bypass in place
     last_level[id] = lvl;
     pwm_set_gpio_level(pwm_pin[id], lvl);
 }

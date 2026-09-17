@@ -20,6 +20,7 @@
 static spi_pio_t bus;
 static bool ready = false;
 uint32_t tmag_last_rx = 0;   // raw reply, exposed for diagnostics
+uint8_t  tmag_wiring  = 0;   // 0 = not working, 1 = normal pinout, 2 = swapped
 
 // -----------------------------------------------------------------------------
 // Frame layout, 7.5.2:
@@ -88,48 +89,59 @@ float tmag_to_mt(int16_t raw, uint16_t range_mt) {
     return ((float)raw / 32768.0f) * (float)range_mt;
 }
 
-tmag_result_t tmag_init(void) {
-    // PIO SPI, mode 0 per 7.5.2.1, 32-bit frames per 7.5.2.
-    // Net names are from the sensor's point of view: M_SPI0_SDI is the
-    // sensor's input, so it is the MCU's MOSI. M_SPI0_SDO is its output,
-    // so it is the MCU's MISO.
-    if (!spi_pio_init(&bus, pio1, 0,
-                      M_SPI0_SDI_PIN,   // MOSI, into the sensor's SDI
-                      M_SPI0_SDO_PIN,   // MISO, from the sensor's SDO
-                      M_SPI0_SCK_PIN,
+// Bring up one wiring option and see if the sensor answers.
+// sm picks a distinct state machine so a second attempt does not clash with
+// the first program already loaded into the block.
+static tmag_result_t try_wiring(uint mosi, uint miso, uint sm) {
+    if (!spi_pio_init(&bus, pio1, sm, mosi, miso, M_SPI0_SCK_PIN,
                       TMAG_SPI_HZ, 32)) {
-        log_error("TMAG PIO SPI init failed");
         return TMAG_ERR_SPI;
     }
+    ready = true;
+    sleep_ms(1);
 
-    // CS driven by hand so it can stay low across the full 32-bit frame
+    uint16_t test;
+    return tmag_read_reg(TMAG_REG_TEST_CONFIG, &test);
+}
+
+tmag_result_t tmag_init(void) {
     gpio_init(M_SPI0_CS_PIN);
     gpio_set_dir(M_SPI0_CS_PIN, GPIO_OUT);
     gpio_put(M_SPI0_CS_PIN, 1);
 
-    // 6.7: up to 350 us to start after VCC crosses the minimum
-    sleep_ms(1);
-    ready = true;
+    sleep_ms(2);   // 6.7: up to 350 us to start after VCC is good
 
-    // Prove the link before trusting any data. TEST_CONFIG bits 5:4 (VER)
-    // read 1h on the A2 part, Table 7-21.
-    uint16_t test;
-    tmag_result_t r = tmag_read_reg(TMAG_REG_TEST_CONFIG, &test);
+    // Attempt 1: the wiring the netlist implies. M_SPI0_SDI reaches the
+    // sensor's SDI input, so the MCU drives it.
+    tmag_result_t r = try_wiring(M_SPI0_SDI_PIN, M_SPI0_SDO_PIN, 0);
+    if (r == TMAG_OK) {
+        tmag_wiring = 1;
+    } else {
+        // Attempt 2: swapped. CN8 pin numbering differs between the two
+        // schematic sheets, so a straight-through cable would cross these.
+        // A cross leaves our MISO input facing the sensor's SDI input, which
+        // floats and reads all zeros - exactly the symptom.
+        ready = false;
+        r = try_wiring(M_SPI0_SDO_PIN, M_SPI0_SDI_PIN, 3);
+        if (r == TMAG_OK) {
+            tmag_wiring = 2;
+        }
+    }
+
     if (r != TMAG_OK) {
         ready = false;
-        log_value("TMAG link failed, err", (int32_t)r);
+        tmag_wiring = 0;
+        log_value("TMAG both wirings failed, err", (int32_t)r);
         return r;
     }
-    log_hex("TMAG TEST_CONFIG", test);
 
-    // Continuous XYZ conversion at the default +/-150 mT range
+    log_value("TMAG alive, wiring", tmag_wiring);
+
     tmag_write_reg(TMAG_REG_SENSOR_CONFIG,
                    (uint16_t)(TMAG_MAG_CH_EN_XYZ << TMAG_MAG_CH_EN_SHIFT));
-
     tmag_write_reg(TMAG_REG_DEVICE_CONFIG,
                    (uint16_t)((TMAG_CONV_AVG_1X << TMAG_CONV_AVG_SHIFT) |
                               (TMAG_OP_MODE_ACTIVE << TMAG_OP_MODE_SHIFT)));
-
     log_info("TMAG5170 init OK");
     return TMAG_OK;
 }
