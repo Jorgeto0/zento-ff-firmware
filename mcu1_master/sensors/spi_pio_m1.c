@@ -33,8 +33,13 @@ bool spi_m1_init(spi_m1_t *bus, PIO pio, uint sm,
 
     pio_sm_config c = spi_mode1_program_get_default_config(bus->offset);
 
-    sm_config_set_out_pins(&c, pin_mosi, 1);
-    sm_config_set_in_pins(&c, pin_miso);
+    sm_config_set_out_pin_base(&c, pin_mosi);
+    sm_config_set_out_pin_count(&c, 1);
+    // Use the explicit base setters: they populate config->pinhi, which is
+    // what pio_sm_set_config needs to apply the GPIO_BASE offset. The
+    // plain setters may leave it unspecified, in which case the pin is
+    // never translated and the SM reads the wrong GPIO entirely.
+    sm_config_set_in_pin_base(&c, pin_miso);
     sm_config_set_sideset_pins(&c, pin_sck);
 
     // MSB first. Autopull and autopush both OFF — the program has explicit
