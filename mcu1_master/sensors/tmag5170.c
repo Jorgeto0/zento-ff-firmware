@@ -7,6 +7,7 @@
 #include "config.h"
 #include "diagnostics/uart_log.h"
 #include "spi_pio.h"
+#include "spi_pio_m1.h"
 #include "hardware/gpio.h"
 #include "pico/time.h"
 
@@ -18,6 +19,7 @@
 // problem. PIO drives either pin in either direction, so the board works as
 // wired with no rework.
 static spi_pio_t bus;
+static spi_m1_t  bus_m1;   // proven wrapper, used for the link probe
 static bool ready = false;
 uint32_t tmag_last_rx = 0;   // raw reply, exposed for diagnostics
 uint8_t  tmag_wiring  = 0;   // 0 = not working, 1 = normal pinout, 2 = swapped
@@ -113,6 +115,20 @@ tmag_result_t tmag_init(void) {
 
     // Attempt 1: the wiring the netlist implies. M_SPI0_SDI reaches the
     // sensor's SDI input, so the MCU drives it.
+    // Link probe on the mode-1 wrapper first. Wrong SPI mode for this sensor,
+    // so the data will be garbage - but garbage proves the sensor is alive and
+    // the pins are right. The mode-1 wrapper is the only one proven on this
+    // hardware (VC1 uses it); the mode-0 one has never had a reply.
+    if (spi_m1_init(&bus_m1, pio1, 2, M_SPI0_SDI_PIN, M_SPI0_SDO_PIN,
+                    M_SPI0_SCK_PIN, TMAG_SPI_HZ)) {
+        gpio_put(M_SPI0_CS_PIN, 0);
+        uint32_t probe_hi = spi_m1_xfer(&bus_m1, 0x8F00, 16);
+        uint32_t probe_lo = spi_m1_xfer(&bus_m1, 0x0008, 16);
+        gpio_put(M_SPI0_CS_PIN, 1);
+        tmag_last_rx = (probe_hi << 16) | (probe_lo & 0xFFFF);
+        log_hex("TMAG mode1 probe", tmag_last_rx);
+    }
+
     tmag_result_t r = try_wiring(M_SPI0_SDI_PIN, M_SPI0_SDO_PIN, 0);
     if (r == TMAG_OK) {
         tmag_wiring = 1;
