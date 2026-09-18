@@ -283,6 +283,15 @@ int main(void) {
             // here shows the MCU and main board are healthy.
             hid_report.coil_current[3] = mcp9808_last_id();
 
+            // I2C1 scan. Slot 1 = which of 0x18-0x1F answered (temp
+            // sensor, address pins are unconnected so it could be any).
+            // Slot 2 = which of 0x20-0x27 answered (button expander).
+            // Slot 3 = manufacturer ID, 0x0054 on a healthy MCP9808.
+            extern uint16_t mcp_found_18_1f, mcp_found_20_27;
+            hid_report.coil_current[1] = mcp_found_18_1f;
+            hid_report.coil_current[2] = mcp_found_20_27;
+            hid_report.coil_current[3] = mcp9808_last_id();
+
             hid_report.coil_current[8] = drv_present_mask();
 
             // Raw error codes so a failure says which stage broke rather than
