@@ -17,6 +17,7 @@ add_executable(mcu1_master
     sensors/spi_pio.c
     sensors/spi_pio_m1.c
     sensors/as5047p.c
+    sensors/mcp9808.c
     motor/drv8873.c
     motor/coil_pwm.c
     pio_bus/pio_master.c
@@ -37,6 +38,7 @@ target_link_libraries(mcu1_master
     hardware_pio
     hardware_spi
     hardware_pwm
+    hardware_i2c
     pico_float_pico
     pico_double_pico
     tinyusb_device

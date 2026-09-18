@@ -16,6 +16,7 @@
 #include "pio_bus/pio_master.h"
 #include "sensors/tmag5170.h"
 #include "sensors/as5047p.h"
+#include "sensors/mcp9808.h"
 #include "motor/drv8873.h"
 #include "motor/coil_pwm.h"
 
@@ -86,6 +87,7 @@ int main(void) {
     // Step 5 — Bring up the TMAG5170 hall sensor on SPI0
     tmag_status = tmag_init();
     as_status = as5047_init();
+    mcp9808_init();
     drv_init_all();
     coil_pwm_init();
 
@@ -275,6 +277,11 @@ int main(void) {
             // Which TMAG wiring worked: 0 neither, 1 normal, 2 swapped
             extern uint8_t tmag_wiring;
             hid_report.coil_current[4] = tmag_wiring;
+
+            // MCP9808 manufacturer ID, should read 0x0054. I2C is a
+            // separate bus from all the SPI peripherals, so a good read
+            // here shows the MCU and main board are healthy.
+            hid_report.coil_current[3] = mcp9808_last_id();
 
             hid_report.coil_current[8] = drv_present_mask();
 
