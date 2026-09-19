@@ -278,11 +278,6 @@ int main(void) {
             extern uint8_t tmag_wiring;
             hid_report.coil_current[4] = tmag_wiring;
 
-            // MCP9808 manufacturer ID, should read 0x0054. I2C is a
-            // separate bus from all the SPI peripherals, so a good read
-            // here shows the MCU and main board are healthy.
-            hid_report.coil_current[3] = mcp9808_last_id();
-
             // I2C1 scan. Slot 1 = which of 0x18-0x1F answered (temp
             // sensor, address pins are unconnected so it could be any).
             // Slot 2 = which of 0x20-0x27 answered (button expander).
@@ -291,6 +286,12 @@ int main(void) {
             hid_report.coil_current[1] = mcp_found_18_1f;
             hid_report.coil_current[2] = mcp_found_20_27;
             hid_report.coil_current[3] = mcp9808_last_id();
+
+            // Live temperature in hundredths of a degree C, so 2345 = 23.45
+            float temp_c = 0.0f;
+            if (mcp9808_read_temp(&temp_c) == MCP_OK) {
+                hid_report.coil_current[0] = (uint16_t)(int16_t)(temp_c * 100.0f);
+            }
 
             hid_report.coil_current[8] = drv_present_mask();
 
