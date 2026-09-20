@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZENTO Flux — Telemetry</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#171a21; --panel-2:#1e222b; --line:#2a2f3a;
+    --text:#e6e9ef; --dim:#8b93a3; --ok:#3ddc84; --bad:#ff5c5c;
+    --warn:#ffb020; --accent:#5b8cff;
+    color-scheme: dark; box-sizing: border-box;
+  }
+  * { box-sizing: inherit; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font:15px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+    padding:24px 20px 48px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  header { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:24px; }
+  h1 { font-size:20px; margin:0; font-weight:650; letter-spacing:-.01em; }
+  .sub { color:var(--dim); font-size:13px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px;
+    padding:9px 16px; font-size:14px; font-weight:550; cursor:pointer; font-family:inherit; }
+  button:hover { filter:brightness(1.1); }
+  button:disabled { opacity:.45; cursor:default; filter:none; }
+  button.ghost { background:var(--panel-2); color:var(--text); }
+  .status { font-size:13px; color:var(--dim); }
+  .status.live { color:var(--ok); }
+  .grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card h2 { font-size:11px; text-transform:uppercase; letter-spacing:.09em;
+    color:var(--dim); margin:0 0 12px; font-weight:600; }
+  .row { display:flex; justify-content:space-between; align-items:baseline; padding:5px 0; gap:12px; }
+  .row + .row { border-top:1px solid var(--line); }
+  .label { color:var(--dim); font-size:13px; }
+  .val { font-variant-numeric:tabular-nums; font-weight:600; font-size:14px; }
+  .big { font-size:30px; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+  .pill { font-size:12px; font-weight:600; padding:2px 9px; border-radius:99px; }
+  .pill.ok { background:rgba(61,220,132,.15); color:var(--ok); }
+  .pill.bad { background:rgba(255,92,92,.15); color:var(--bad); }
+  .pill.idle { background:var(--panel-2); color:var(--dim); }
+  .bar { height:5px; background:var(--panel-2); border-radius:99px; overflow:hidden; margin-top:6px; }
+  .bar i { display:block; height:100%; background:var(--accent); width:50%; transition:width .08s linear; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
+  .chip { font-size:11px; font-weight:600; padding:3px 9px; border-radius:6px;
+    background:var(--panel-2); color:var(--dim); }
+  .chip.on { background:rgba(61,220,132,.15); color:var(--ok); }
+  .raw { font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:11.5px; color:var(--dim); word-break:break-all; line-height:1.7; }
+  .force { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  select { background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    border-radius:7px; padding:7px 10px; font-size:13px; font-family:inherit; }
+  .note { color:var(--dim); font-size:12.5px; margin-top:10px; }
+  .unsupported { background:rgba(255,176,32,.1); border:1px solid var(--warn);
+    color:var(--warn); padding:12px 14px; border-radius:10px; margin-bottom:20px; font-size:13.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>ZENTO Flux — Telemetry</h1>
+      <div class="sub">Live readout over WebHID</div>
+    </div>
+    <div style="flex:1"></div>
+    <button id="connect">Connect</button>
+    <span class="status" id="status">Not connected</span>
+  </header>
+
+  <div class="unsupported" id="unsupported" style="display:none">
+    This page needs WebHID — Chrome or Edge. Safari and Firefox don't support it.
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Temperature</h2>
+      <div class="big"><span id="temp">—</span><span style="font-size:17px;color:var(--dim)"> °C</span></div>
+      <div class="row"><span class="label">Sensor ID</span><span class="val" id="mcpid">—</span></div>
+      <div class="row"><span class="label">Status</span><span id="mcpstat" class="pill idle">—</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Gyro</h2>
+      <div class="row"><span class="label">WHO_AM_I</span><span id="gyroid" class="pill idle">—</span></div>
+      <div class="row"><span class="label">X</span><span class="val" id="gx">—</span></div>
+      <div class="row"><span class="label">Y</span><span class="val" id="gy">—</span></div>
+      <div class="row"><span class="label">Z</span><span class="val" id="gz">—</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Sticks</h2>
+      <div class="row"><span class="label">Stick 1 X</span><span class="val" id="s1x">—</span></div>
+      <div class="row"><span class="label">Stick 1 Y</span><span class="val" id="s1y">—</span></div>
+      <div class="row"><span class="label">Stick 2 X</span><span class="val" id="s2x">—</span></div>
+      <div class="row"><span class="label">Stick 2 Y</span><span class="val" id="s2y">—</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Motor drivers</h2>
+      <div class="chips" id="drivers">
+        <span class="chip">Coil 1</span><span class="chip">Coil 2</span><span class="chip">Coil 3</span>
+        <span class="chip">Coil 4</span><span class="chip">Voice coil</span>
+      </div>
+      <div class="note" id="drvnote">No data yet</div>
+    </div>
+
+    <div class="card">
+      <h2>Buttons</h2>
+      <div class="chips" id="buttons">
+        <span class="chip">1</span><span class="chip">2</span><span class="chip">3</span>
+        <span class="chip">4</span><span class="chip">5</span>
+      </div>
+      <div class="row" style="margin-top:8px"><span class="label">I²C expander</span><span id="expander" class="pill idle">—</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Force test</h2>
+      <div class="force">
+        <select id="coil">
+          <option value="0">Coil 1</option><option value="1">Coil 2</option>
+          <option value="2">Coil 3</option><option value="3">Coil 4</option>
+          <option value="4" selected>Voice coil</option>
+        </select>
+        <input type="range" id="level" min="-100" max="100" value="50" style="flex:1;min-width:110px">
+        <span class="val" id="lvlout">50%</span>
+      </div>
+      <div class="bar"><i id="lvlbar"></i></div>
+      <button class="ghost" id="send" style="margin-top:12px" disabled>Hold to drive</button>
+      <div class="note">Drives while held. Firmware cuts out after half a second of silence.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h2>Raw report</h2>
+    <div class="raw" id="raw">—</div>
+    <div class="note">Commands received by the board: <span id="rxcount">—</span></div>
+  </div>
+</div>
+
+<script>
+const VID = 0xCAFE, PID = 0x0001;
+let device = null, sendTimer = null;
+const $ = id => document.getElementById(id);
+const hex = (n, w=2) => '0x' + n.toString(16).toUpperCase().padStart(w, '0');
+
+if (!('hid' in navigator)) {
+  $('unsupported').style.display = 'block';
+  $('connect').disabled = true;
+}
+function pill(el, ok, text) {
+  el.className = 'pill ' + (ok ? 'ok' : 'bad');
+  el.textContent = text;
+}
+
+// coil_current[i] sits at byte 9 + i*2; WebHID strips the report ID
+const slot  = (dv, i) => dv.getUint16(9 + i * 2, true);
+const slotS = (dv, i) => dv.getInt16 (9 + i * 2, true);
+
+function render(dv) {
+  $('s1x').textContent = dv.getInt16(0, true);
+  $('s1y').textContent = dv.getInt16(2, true);
+  $('s2x').textContent = dv.getInt16(4, true);
+  $('s2y').textContent = dv.getInt16(6, true);
+
+  const btn = dv.getUint8(8);
+  [...$('buttons').children].forEach((c,i) => c.className = 'chip' + ((btn>>i)&1 ? ' on' : ''));
+
+  $('temp').textContent = (slotS(dv,0) / 100).toFixed(2);
+
+  const mcpId = slot(dv,3);
+  $('mcpid').textContent = hex(mcpId,4);
+  pill($('mcpstat'), mcpId === 0x0054, mcpId === 0x0054 ? 'Working' : 'No reply');
+
+  const exp = slot(dv,2);
+  pill($('expander'), exp !== 0, exp !== 0 ? 'Found' : 'Not found');
+
+  const who = slot(dv,4) & 0xFF;
+  pill($('gyroid'), who === 0x6A, hex(who));
+  $('gx').textContent = slotS(dv,5);
+  $('gy').textContent = slotS(dv,6);
+  $('gz').textContent = slotS(dv,7);
+
+  const mask = slot(dv,8);
+  let live = 0;
+  [...$('drivers').children].forEach((c,i) => {
+    const on = (mask>>i)&1; if (on) live++;
+    c.className = 'chip' + (on ? ' on' : '');
+  });
+  $('drvnote').textContent = live + ' of 5 responding';
+
+  $('rxcount').textContent = slot(dv,9);
+
+  const bytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+  $('raw').textContent = [...bytes].map(b => b.toString(16).padStart(2,'0')).join(' ');
+}
+
+$('connect').onclick = async () => {
+  try {
+    const list = await navigator.hid.requestDevice({ filters: [{ vendorId: VID, productId: PID }] });
+    if (!list.length) return;
+    device = list[0];
+    if (!device.opened) await device.open();
+    $('status').textContent = 'Connected — ' + device.productName;
+    $('status').className = 'status live';
+    $('connect').textContent = 'Reconnect';
+    $('send').disabled = false;
+    device.addEventListener('inputreport', e => { if (e.reportId === 1) render(e.data); });
+  } catch (err) {
+    $('status').textContent = 'Failed: ' + err.message;
+  }
+};
+
+$('level').oninput = e => {
+  const v = +e.target.value;
+  $('lvlout').textContent = v + '%';
+  $('lvlbar').style.width = Math.abs(v) + '%';
+};
+
+async function drive(pct) {
+  if (!device) return;
+  const buf = new Uint8Array(11);            // command byte + 5 x int16
+  buf[0] = 0x10;
+  const dv = new DataView(buf.buffer);
+  dv.setInt16(1 + (+$('coil').value) * 2, Math.round(pct / 100 * 32767), true);
+  try { await device.sendReport(2, buf); } catch (e) {}
+}
+
+const startDrive = () => {
+  if (sendTimer) return;
+  const tick = () => drive(+$('level').value);
+  tick();
+  sendTimer = setInterval(tick, 100);        // stay ahead of the 500ms cutoff
+};
+const stopDrive = () => { clearInterval(sendTimer); sendTimer = null; drive(0); };
+
+['mousedown','touchstart'].forEach(e => $('send').addEventListener(e, ev => { ev.preventDefault(); startDrive(); }));
+['mouseup','mouseleave','touchend','touchcancel'].forEach(e => $('send').addEventListener(e, stopDrive));
+</script>
+</body>
+</html>
