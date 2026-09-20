@@ -176,9 +176,11 @@ function render(dv) {
 
   const who = slot(dv,4) & 0xFF;
   pill($('gyroid'), who === 0x6A, hex(who));
-  $('gx').textContent = slotS(dv,5);
-  $('gy').textContent = slotS(dv,6);
-  $('gz').textContent = slotS(dv,7);
+  // 2000 dps full scale -> 70 millidegrees per count (CTRL2_G = 0x4C)
+  const dps = v => (v * 0.07).toFixed(1) + ' °/s';
+  $('gx').textContent = dps(slotS(dv,5));
+  $('gy').textContent = dps(slotS(dv,6));
+  $('gz').textContent = dps(slotS(dv,7));
 
   const mask = slot(dv,8);
   let live = 0;
