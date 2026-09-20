@@ -1,0 +1,24 @@
+;==============================================================================
+; mcu1_master/sensors/spi_pio_m3.pio — PIO SPI master, mode 3
+;
+; For the LSM6DSL gyro. Mode 3 is CPOL=1, CPHA=1: the clock idles HIGH, data
+; changes on the falling edge and is sampled on the rising edge.
+;
+; Structurally identical to the mode-1 program with the sideset values
+; inverted, and the stall sits on a side-1 instruction so the clock idles
+; high between frames as the mode requires.
+;==============================================================================
+
+.program spi_mode3
+.side_set 1
+
+.wrap_target
+    pull block          side 1      ; stall here, clock HIGH, waiting for data
+    out x, 32           side 1      ; first word is the bit count minus one
+    pull block          side 1      ; second word is the data to send
+bitloop:
+    out pins, 1         side 0      ; falling edge, change MOSI
+    in pins, 1          side 1      ; rising edge, sample MISO
+    jmp x-- bitloop     side 1
+    push block          side 1
+.wrap

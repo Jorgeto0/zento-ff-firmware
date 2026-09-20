@@ -18,6 +18,8 @@ add_executable(mcu1_master
     sensors/spi_pio_m1.c
     sensors/as5047p.c
     sensors/mcp9808.c
+    sensors/spi_pio_m3.c
+    sensors/lsm6dsl.c
     motor/drv8873.c
     motor/coil_pwm.c
     pio_bus/pio_master.c
@@ -66,6 +68,7 @@ target_include_directories(mcu1_master PRIVATE
 pico_generate_pio_header(mcu1_master ${CMAKE_CURRENT_SOURCE_DIR}/pio_bus/bus_master.pio)
 pico_generate_pio_header(mcu1_master ${CMAKE_CURRENT_SOURCE_DIR}/sensors/spi_pio.pio)
 pico_generate_pio_header(mcu1_master ${CMAKE_CURRENT_SOURCE_DIR}/sensors/spi_pio_m1.pio)
+pico_generate_pio_header(mcu1_master ${CMAKE_CURRENT_SOURCE_DIR}/sensors/spi_pio_m3.pio)
 pico_enable_stdio_usb(mcu1_master 0)
 pico_enable_stdio_uart(mcu1_master 1)
 

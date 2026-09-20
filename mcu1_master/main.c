@@ -17,6 +17,7 @@
 #include "sensors/tmag5170.h"
 #include "sensors/as5047p.h"
 #include "sensors/mcp9808.h"
+#include "sensors/lsm6dsl.h"
 #include "motor/drv8873.h"
 #include "motor/coil_pwm.h"
 
@@ -88,6 +89,7 @@ int main(void) {
     tmag_status = tmag_init();
     as_status = as5047_init();
     mcp9808_init();
+    lsm6dsl_init();
     drv_init_all();
     coil_pwm_init();
 
@@ -291,6 +293,16 @@ int main(void) {
             float temp_c = 0.0f;
             if (mcp9808_read_temp(&temp_c) == MCP_OK) {
                 hid_report.coil_current[0] = (uint16_t)(int16_t)(temp_c * 100.0f);
+            }
+
+            // Gyro. Slot 4 = WHO_AM_I, should read 0x6A.
+            // Slots 5-7 = live gyro X, Y, Z.
+            hid_report.coil_current[4] = lsm6dsl_last_whoami();
+            lsm_xyz_t g;
+            if (lsm6dsl_read_gyro(&g) == LSM_OK) {
+                hid_report.coil_current[5] = (uint16_t)g.x;
+                hid_report.coil_current[6] = (uint16_t)g.y;
+                hid_report.coil_current[7] = (uint16_t)g.z;
             }
 
             hid_report.coil_current[8] = drv_present_mask();
