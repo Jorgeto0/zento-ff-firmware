@@ -311,8 +311,7 @@ int main(void) {
             // just that it did. Low byte TMAG, high byte AS5047.
             //   TMAG: 1 SPI init, 2 CRC mismatch, 3 no reply
             //   AS:   1 SPI init, 2 parity, 3 error flag, 4 bus floating
-            hid_report.coil_current[7] =
-                (uint16_t)((uint8_t)tmag_status | ((uint8_t)as_status << 8));
+            // error codes moved out: slot 7 now carries gyro Z
 
             hid_send_primary(&hid_report);
             {
