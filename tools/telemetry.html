@@ -75,13 +75,12 @@
     <div class="card">
       <h2>Temperature</h2>
       <div class="big"><span id="temp">—</span><span style="font-size:17px;color:var(--dim)"> °C</span></div>
-      <div class="row"><span class="label">Sensor ID</span><span class="val" id="mcpid">—</span></div>
       <div class="row"><span class="label">Status</span><span id="mcpstat" class="pill idle">—</span></div>
     </div>
 
     <div class="card">
       <h2>Gyro</h2>
-      <div class="row"><span class="label">WHO_AM_I</span><span id="gyroid" class="pill idle">—</span></div>
+      <div class="row"><span class="label">Status</span><span id="gyroid" class="pill idle">—</span></div>
       <div class="row"><span class="label">X</span><span class="val" id="gx">—</span></div>
       <div class="row"><span class="label">Y</span><span class="val" id="gy">—</span></div>
       <div class="row"><span class="label">Z</span><span class="val" id="gz">—</span></div>
@@ -114,6 +113,16 @@
     </div>
 
     <div class="card">
+      <h2>Coil current</h2>
+      <div class="row"><span class="label">Coil 1</span><span class="val" id="cur1">—</span></div>
+      <div class="row"><span class="label">Coil 2</span><span class="val" id="cur2">—</span></div>
+      <div class="row"><span class="label">Coil 3</span><span class="val" id="cur3">—</span></div>
+      <div class="row"><span class="label">Coil 4</span><span class="val" id="cur4">—</span></div>
+      <div class="row"><span class="label">Voice coil</span><span class="val" id="curv">—</span></div>
+      <div class="note">Scaling is provisional until checked against a known load.</div>
+    </div>
+
+    <div class="card">
       <h2>Force test</h2>
       <div class="force">
         <select id="coil">
@@ -133,7 +142,6 @@
   <div class="card" style="margin-top:14px">
     <h2>Raw report</h2>
     <div class="raw" id="raw">—</div>
-    <div class="note">Commands received by the board: <span id="rxcount">—</span></div>
   </div>
 </div>
 
@@ -165,24 +173,26 @@ function render(dv) {
   const btn = dv.getUint8(8);
   [...$('buttons').children].forEach((c,i) => c.className = 'chip' + ((btn>>i)&1 ? ' on' : ''));
 
-  $('temp').textContent = (slotS(dv,0) / 100).toFixed(2);
+  // Slots 0-4: coil current, raw ADC counts. ~2A across the full 4095 range.
+  const coils = [0,1,2,3,4].map(i => slot(dv, i));
+  $('cur1').textContent = (coils[0] / 4095 * 2).toFixed(2) + ' A';
+  $('cur2').textContent = (coils[1] / 4095 * 2).toFixed(2) + ' A';
+  $('cur3').textContent = (coils[2] / 4095 * 2).toFixed(2) + ' A';
+  $('cur4').textContent = (coils[3] / 4095 * 2).toFixed(2) + ' A';
+  $('curv').textContent = (coils[4] / 4095 * 2).toFixed(2) + ' A';
 
-  const mcpId = slot(dv,3);
-  $('mcpid').textContent = hex(mcpId,4);
-  pill($('mcpstat'), mcpId === 0x0054, mcpId === 0x0054 ? 'Working' : 'No reply');
+  $('temp').textContent = (slotS(dv,5) / 100).toFixed(2);
 
-  const exp = slot(dv,2);
-  pill($('expander'), exp !== 0, exp !== 0 ? 'Found' : 'Not found');
-
-  const who = slot(dv,4) & 0xFF;
-  pill($('gyroid'), who === 0x6A, hex(who));
-  // 2000 dps full scale -> 70 millidegrees per count (CTRL2_G = 0x4C)
+  // 2000 dps full scale -> 70 millidegrees per count
   const dps = v => (v * 0.07).toFixed(1) + ' °/s';
-  $('gx').textContent = dps(slotS(dv,5));
-  $('gy').textContent = dps(slotS(dv,6));
-  $('gz').textContent = dps(slotS(dv,7));
+  $('gx').textContent = dps(slotS(dv,6));
+  $('gy').textContent = dps(slotS(dv,7));
+  $('gz').textContent = dps(slotS(dv,8));
 
-  const mask = slot(dv,8);
+  // Slot 9: low byte driver mask, high byte health flags
+  const st = slot(dv,9);
+  const mask = st & 0xFF, health = (st >> 8) & 0xFF;
+
   let live = 0;
   [...$('drivers').children].forEach((c,i) => {
     const on = (mask>>i)&1; if (on) live++;
@@ -190,7 +200,9 @@ function render(dv) {
   });
   $('drvnote').textContent = live + ' of 5 responding';
 
-  $('rxcount').textContent = slot(dv,9);
+  pill($('mcpstat'), health & 0x01, (health & 0x01) ? 'Working' : 'No reply');
+  pill($('gyroid'),  health & 0x02, (health & 0x02) ? 'Working' : 'No reply');
+  pill($('expander'), health & 0x10, (health & 0x10) ? 'Found' : 'Not found');
 
   const bytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
   $('raw').textContent = [...bytes].map(b => b.toString(16).padStart(2,'0')).join(' ');

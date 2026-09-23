@@ -22,6 +22,7 @@ add_executable(mcu1_master
     sensors/lsm6dsl.c
     motor/drv8873.c
     motor/coil_pwm.c
+    motor/current_sense.c
     pio_bus/pio_master.c
     usb_hid/hid_descriptors.c
     usb_hid/hid.c
@@ -41,6 +42,7 @@ target_link_libraries(mcu1_master
     hardware_spi
     hardware_pwm
     hardware_i2c
+    hardware_adc
     pico_float_pico
     pico_double_pico
     tinyusb_device

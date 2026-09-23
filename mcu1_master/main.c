@@ -20,6 +20,7 @@
 #include "sensors/lsm6dsl.h"
 #include "motor/drv8873.h"
 #include "motor/coil_pwm.h"
+#include "motor/current_sense.h"
 
 // -----------------------------------------------------------------------------
 // System clock frequency
@@ -92,6 +93,7 @@ int main(void) {
     lsm6dsl_init();
     drv_init_all();
     coil_pwm_init();
+    current_sense_init();
 
     // Step 6 — Start the inter-MCU PIO bus (master owns the clock)
     if (pio_master_init() != PIO_BUS_OK) {
@@ -216,102 +218,47 @@ int main(void) {
                 hid_report.stick1_x = m.x;
                 hid_report.stick1_y = m.y;
             }
+            // AS5047 rotation angle feeds stick 1's second axis once the
+            // sensor board is working; unused while it is not.
             uint16_t ang;
             if (as5047_read_angle(&ang) == AS_OK) {
                 log_value("AS5047 angle", ang);
-                hid_report.coil_current[0] = ang;
             }
 
-            // Push sensor data to the PC. Stick 1 comes from the TMAG here;
-            // stick 2 arrives from MCU2 over the PIO bus. The spare telemetry
-            // slots carry the AS5047 angle and its AGC, so the host can watch
-            // for magnetic interference from the coils.
-            as_diag_t diag;
-            if (as5047_read_diag(&diag) == AS_OK) {
-                hid_report.coil_current[1] = diag.agc;
-            }
-            // Sensor status in the last telemetry slot, so it can be read
-            // as a number in the browser instead of counting LED blinks:
-            //   0 both OK, 1 TMAG failed, 2 AS5047 failed, 3 both failed
-            hid_report.coil_current[9] =
-                (uint16_t)((tmag_status != TMAG_OK ? 1u : 0u) |
-                           (as_status   != AS_OK   ? 2u : 0u));
-
-            // Which motor drivers answered, bit 0 = coil 1. Lets the
-            // client see each coil appear as it is wired up.
-            // Raw TMAG reply, top and bottom halves. All zeros means nothing
-            // is driving MISO. Anything else means data is arriving and the
-            // problem is in how we parse it.
-            extern uint32_t tmag_last_rx;
-            hid_report.coil_current[5] = (uint16_t)(tmag_last_rx >> 16);
-            hid_report.coil_current[6] = (uint16_t)(tmag_last_rx & 0xFFFF);
-
-            // Raw reply from each of the five drivers, slots 0-4.
-            // 0x0000  nothing driving SDO -> chip select or device not alive
-            // 0xFFFF  line stuck high
-            // bits 15 and 14 both set -> device is alive and answering
-            extern uint16_t drv_last_rx[];
-            for (uint8_t d = 0; d < 5; d++) {
-                hid_report.coil_current[d] = drv_last_rx[d];
+            // -----------------------------------------------------------------
+            // Telemetry layout. ONE write per slot — an earlier version had
+            // several values sharing slots, which silently overwrote the gyro.
+            //   0-4  coil current, raw ADC counts: coil 1-4 then voice coil
+            //   5    temperature, hundredths of a degree C
+            //   6-8  gyro X, Y, Z
+            //   9    status: low byte = driver present mask,
+            //               high byte = health flags
+            // -----------------------------------------------------------------
+            for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                hid_report.coil_current[i] = current_raw((drv_id_t)i);
             }
 
-            // Did any output report arrive, and what was its first byte?
-            hid_report.coil_current[9] = cfg_rx_count;
-            hid_report.coil_current[6] = cfg_cmd_seen;
-
-            // Full chain diagnosis for the VC1 coil:
-            //   0 force value we parsed      1 PWM level we wrote
-            //   2 U19 FAULT register         3 U19 DIAG register
-            //   4 U19 IC3 (output enables)   6 last command byte
-            //   9 output reports received
-            hid_report.coil_current[0] = (uint16_t)vc_force_dbg;
-            hid_report.coil_current[1] = coil_get_level(DRV_VC1);
-
-            uint8_t drv_fault = 0, drv_diag = 0, drv_ic3 = 0;
-            drv_read_reg(DRV_VC1, DRV_REG_FAULT, &drv_fault, NULL);
-            drv_read_reg(DRV_VC1, DRV_REG_DIAG,  &drv_diag,  NULL);
-            drv_read_reg(DRV_VC1, DRV_REG_IC3,   &drv_ic3,   NULL);
-            hid_report.coil_current[2] = drv_fault;
-            hid_report.coil_current[3] = drv_diag;
-            hid_report.coil_current[4] = drv_ic3;
-            hid_report.coil_current[5] = post_drive_diag;
-
-            // Which TMAG wiring worked: 0 neither, 1 normal, 2 swapped
-            extern uint8_t tmag_wiring;
-            hid_report.coil_current[4] = tmag_wiring;
-
-            // I2C1 scan. Slot 1 = which of 0x18-0x1F answered (temp
-            // sensor, address pins are unconnected so it could be any).
-            // Slot 2 = which of 0x20-0x27 answered (button expander).
-            // Slot 3 = manufacturer ID, 0x0054 on a healthy MCP9808.
-            extern uint16_t mcp_found_18_1f, mcp_found_20_27;
-            hid_report.coil_current[1] = mcp_found_18_1f;
-            hid_report.coil_current[2] = mcp_found_20_27;
-            hid_report.coil_current[3] = mcp9808_last_id();
-
-            // Live temperature in hundredths of a degree C, so 2345 = 23.45
             float temp_c = 0.0f;
-            if (mcp9808_read_temp(&temp_c) == MCP_OK) {
-                hid_report.coil_current[0] = (uint16_t)(int16_t)(temp_c * 100.0f);
-            }
+            bool temp_ok = (mcp9808_read_temp(&temp_c) == MCP_OK);
+            hid_report.coil_current[5] =
+                temp_ok ? (uint16_t)(int16_t)(temp_c * 100.0f) : 0;
 
-            // Gyro. Slot 4 = WHO_AM_I, should read 0x6A.
-            // Slots 5-7 = live gyro X, Y, Z.
-            hid_report.coil_current[4] = lsm6dsl_last_whoami();
-            lsm_xyz_t g;
-            if (lsm6dsl_read_gyro(&g) == LSM_OK) {
-                hid_report.coil_current[5] = (uint16_t)g.x;
-                hid_report.coil_current[6] = (uint16_t)g.y;
-                hid_report.coil_current[7] = (uint16_t)g.z;
-            }
+            lsm_xyz_t g = {0, 0, 0};
+            bool gyro_ok = (lsm6dsl_read_gyro(&g) == LSM_OK);
+            hid_report.coil_current[6] = (uint16_t)g.x;
+            hid_report.coil_current[7] = (uint16_t)g.y;
+            hid_report.coil_current[8] = (uint16_t)g.z;
 
-            hid_report.coil_current[8] = drv_present_mask();
+            uint8_t health = 0;
+            if (temp_ok)                 health |= 0x01;
+            if (gyro_ok)                 health |= 0x02;
+            if (tmag_status == TMAG_OK)  health |= 0x04;
+            if (as_status   == AS_OK)    health |= 0x08;
+            extern uint16_t mcp_found_20_27;
+            if (mcp_found_20_27)         health |= 0x10;
 
-            // Raw error codes so a failure says which stage broke rather than
-            // just that it did. Low byte TMAG, high byte AS5047.
-            //   TMAG: 1 SPI init, 2 CRC mismatch, 3 no reply
-            //   AS:   1 SPI init, 2 parity, 3 error flag, 4 bus floating
-            // error codes moved out: slot 7 now carries gyro Z
+            hid_report.coil_current[9] =
+                (uint16_t)(drv_present_mask() | ((uint16_t)health << 8));
 
             hid_send_primary(&hid_report);
             {
