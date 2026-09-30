@@ -122,6 +122,7 @@ int main(void) {
     uint32_t last_force_ms = 0;      // 0 means no command yet
     uint16_t dbg_rx_count = 0;       // force commands received
     uint16_t dbg_max_level = 0;      // highest PWM level written
+    uint8_t  dbg_fault = 0;          // FAULT reg of last driven coil
     uint16_t cfg_rx_count = 0;      // output reports received, any kind
     uint16_t cfg_cmd_seen = 0;      // first byte of the last one
     int16_t  vc_force_dbg = 0;      // force value parsed for VC1
@@ -170,6 +171,18 @@ int main(void) {
                 post_drive_diag = (uint16_t)(pf | ((uint16_t)pd << 8));
                 last_force_ms = to_ms_since_boot(get_absolute_time());
                 dbg_rx_count++;
+                // Read FAULT on whichever coil got a non-zero force, after it
+                // has had a moment to drive. Bits: 0 open load, 1 thermal
+                // shutdown, 2 overcurrent, 3 charge pump, 4 undervoltage.
+                for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                    if (coil_get_level((drv_id_t)i) > 0) {
+                        busy_wait_us(500);
+                        uint8_t fr = 0;
+                        drv_read_reg((drv_id_t)i, DRV_REG_FAULT, &fr, NULL);
+                        dbg_fault = fr;
+                        break;
+                    }
+                }
             }
         }
 
@@ -267,6 +280,7 @@ int main(void) {
             // Y = highest PWM level written (2499 = 50% cap).
             hid_report.stick2_x = (int16_t)dbg_rx_count;
             hid_report.stick2_y = (int16_t)dbg_max_level;
+            hid_report.buttons  = dbg_fault;   // TEMPORARY, expander absent
 
             hid_report.coil_current[9] =
                 (uint16_t)(drv_present_mask() | ((uint16_t)health << 8));
