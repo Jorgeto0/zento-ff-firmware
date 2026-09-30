@@ -14,15 +14,27 @@ void current_sense_init(void) {
     }
 }
 
+// IPROPI mirrors only the high-side FET current (DRV8873 datasheet). In
+// PH/EN mode the PWM off-time is low-side brake, so the signal is chopped at
+// the 25 kHz PWM rate and a single sample can land on the zero part. Average
+// 64 samples (~130 us) to get the true mean.
+#define CURRENT_AVG_SAMPLES 64u
+
 uint16_t current_raw(drv_id_t id) {
     if (id >= DRV_COUNT) return 0;
     adc_select_input(adc_ch[id]);
-    return adc_read() & 0x0FFF;
+    uint32_t sum = 0;
+    for (uint32_t n = 0; n < CURRENT_AVG_SAMPLES; n++) {
+        sum += adc_read() & 0x0FFF;
+    }
+    return (uint16_t)(sum / CURRENT_AVG_SAMPLES);
 }
 
 float current_amps(drv_id_t id) {
-    // Provisional: 3.3V over 4095 counts, ~1.65 V per amp through the
-    // mirror and sense resistor. Verify against a known load before
-    // trusting the absolute value.
-    return ((float)current_raw(id) / 4095.0f) * 2.0f;
+    // I_load = V_adc / R_sense * 1100
+    //   mirror ratio 1/1100 (DRV8873 datasheet, IPROPI)
+    //   R_sense 1.5 kOhm (R18, R32, R49, R52, R67)
+    //   3.3 V over 4095 counts -> 2.42 A full scale, 0.000591 A per count
+    const float volts = (float)current_raw(id) * (3.3f / 4095.0f);
+    return volts / 1500.0f * 1100.0f;
 }

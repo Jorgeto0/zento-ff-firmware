@@ -39,7 +39,9 @@ void coil_set_force(drv_id_t id, int16_t force) {
 
     gpio_put(dir_pin[id], reverse ? 1 : 0);
     uint16_t lvl = (uint16_t)((mag * COIL_PWM_WRAP) / 32767u);
-    if (lvl > COIL_MAX_DUTY) lvl = COIL_MAX_DUTY;   // 12V bypass in place
+    // 6V stick coils on the bypassed 12V rail are capped; the 12V voice
+    // coil is not.
+    if (id != DRV_VC1 && lvl > COIL_MAX_DUTY) lvl = COIL_MAX_DUTY;
     last_level[id] = lvl;
     pwm_set_gpio_level(pwm_pin[id], lvl);
 }
@@ -47,6 +49,7 @@ void coil_set_force(drv_id_t id, int16_t force) {
 void coil_all_off(void) {
     for (uint8_t i = 0; i < DRV_COUNT; i++) {
         pwm_set_gpio_level(pwm_pin[i], 0);
+        last_level[i] = 0;      // keep readback honest after a timeout
     }
 }
 

@@ -119,7 +119,7 @@
       <div class="row"><span class="label">Coil 3</span><span class="val" id="cur3">—</span></div>
       <div class="row"><span class="label">Coil 4</span><span class="val" id="cur4">—</span></div>
       <div class="row"><span class="label">Voice coil</span><span class="val" id="curv">—</span></div>
-      <div class="note">Scaling is provisional until checked against a known load.</div>
+      <div class="note">1.5 kΩ sense, 1/1100 mirror: 2.42 A full scale.</div>
     </div>
 
     <div class="card">
@@ -136,6 +136,13 @@
       <div class="bar"><i id="lvlbar"></i></div>
       <button class="ghost" id="send" style="margin-top:12px" disabled>Hold to drive</button>
       <div class="note">Drives while held. Firmware cuts out after half a second of silence.</div>
+    </div>
+
+    <div class="card">
+      <h2>Force debug</h2>
+      <div class="row"><span class="label">Driving</span><span class="val" id="dbgwho">—</span></div>
+      <div class="row"><span class="label">PWM level</span><span class="val" id="dbglvl">—</span></div>
+      <div class="row"><span class="label">Driver status</span><span class="val" id="dbgst">—</span></div>
     </div>
   </div>
 
@@ -173,13 +180,34 @@ function render(dv) {
   const btn = dv.getUint8(8);
   [...$('buttons').children].forEach((c,i) => c.className = 'chip' + ((btn>>i)&1 ? ' on' : ''));
 
-  // Slots 0-4: coil current, raw ADC counts. ~2A across the full 4095 range.
+  // Slots 0-4: coil current, averaged ADC counts.
+  // I = counts * 3.3/4095 / 1500 ohm * 1100 (DRV8873 IPROPI mirror)
+  const A_PER_COUNT = 3.3 / 4095 / 1500 * 1100;
+  const amps = c => (c * A_PER_COUNT).toFixed(2) + ' A';
   const coils = [0,1,2,3,4].map(i => slot(dv, i));
-  $('cur1').textContent = (coils[0] / 4095 * 2).toFixed(2) + ' A';
-  $('cur2').textContent = (coils[1] / 4095 * 2).toFixed(2) + ' A';
-  $('cur3').textContent = (coils[2] / 4095 * 2).toFixed(2) + ' A';
-  $('cur4').textContent = (coils[3] / 4095 * 2).toFixed(2) + ' A';
-  $('curv').textContent = (coils[4] / 4095 * 2).toFixed(2) + ' A';
+  $('cur1').textContent = amps(coils[0]);
+  $('cur2').textContent = amps(coils[1]);
+  $('cur3').textContent = amps(coils[2]);
+  $('cur4').textContent = amps(coils[3]);
+  $('curv').textContent = amps(coils[4]);
+
+  // Force debug (temporary): buttons = coils driven, stick2_y = PWM level,
+  // stick2_x = FAULT | DIAG<<8 of the first driven coil.
+  const names = ['Coil 1','Coil 2','Coil 3','Coil 4','Voice coil'];
+  const dm = btn & 0x1F;
+  $('dbgwho').textContent = dm ? names.filter((n,i) => (dm>>i)&1).join(', ') : 'Nothing';
+  $('dbglvl').textContent = dm ? (dv.getUint16(6, true) / 5000 * 100).toFixed(0) + '%' : '—';
+  if (!dm) {
+    $('dbgst').textContent = '—';
+  } else {
+    const fd = dv.getUint16(4, true), f = fd & 0xFF, d = fd >> 8;
+    const fbits = ['Open load','Overheat shutdown','Overcurrent','Charge pump low','Undervoltage','Temp warning','Fault'];
+    const dbits = ['OCP L2','OCP H2','OCP L1','OCP H1','Current limit 2','Current limit 1','Open load 2','Open load 1'];
+    const hits = [];
+    fbits.forEach((n,i) => { if ((f>>i)&1) hits.push(n); });
+    dbits.forEach((n,i) => { if ((d>>i)&1) hits.push(n); });
+    $('dbgst').textContent = hits.length ? hits.join(', ') : 'OK, no faults';
+  }
 
   $('temp').textContent = (slotS(dv,5) / 100).toFixed(2);
 

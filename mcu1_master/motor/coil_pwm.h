@@ -20,15 +20,11 @@
 #define COIL_PWM_HZ     25000u
 #define COIL_PWM_WRAP   4999u       // 125 MHz / 5000 = 25 kHz
 
-// The buck converter that should produce the 6V rail is bypassed on the
-// current hardware, so the drivers see 12V instead. The coils are rated for
-// 6V, so duty is capped at 50% to keep the average within rating. Raise this
-// only when the bypass is removed.
-// Rail is 12V after the buck repair; coils are rated 6V. 50% duty gives a
-// 6V average (safe, matches rating). Raised to 75% to reach the ~0.75-1A the
-// coils want, since 50% was only delivering about half that. Do NOT set to
-// 100% on a 12V rail — that is double the coils' rated voltage.
-#define COIL_MAX_DUTY   ((COIL_PWM_WRAP * 3u) / 4u)
+// Stick coils 1-4 are rated 6V. Their 6V buck is bypassed on the current
+// hardware, so the drivers see 12V. 50% duty gives a 6V average, matching
+// the coil rating. Do not raise this while the bypass is in place.
+// The voice coil (VC1) is a 12V part on VCC (U19 VM) and is NOT capped.
+#define COIL_MAX_DUTY   (COIL_PWM_WRAP / 2u)
 
 void coil_pwm_init(void);
 
