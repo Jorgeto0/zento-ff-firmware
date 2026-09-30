@@ -24,7 +24,11 @@
 // current hardware, so the drivers see 12V instead. The coils are rated for
 // 6V, so duty is capped at 50% to keep the average within rating. Raise this
 // only when the bypass is removed.
-#define COIL_MAX_DUTY   (COIL_PWM_WRAP / 2u)
+// Rail is 12V after the buck repair; coils are rated 6V. 50% duty gives a
+// 6V average (safe, matches rating). Raised to 75% to reach the ~0.75-1A the
+// coils want, since 50% was only delivering about half that. Do NOT set to
+// 100% on a 12V rail — that is double the coils' rated voltage.
+#define COIL_MAX_DUTY   ((COIL_PWM_WRAP * 3u) / 4u)
 
 void coil_pwm_init(void);
 
