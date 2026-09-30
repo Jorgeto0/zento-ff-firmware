@@ -253,14 +253,14 @@ int main(void) {
             // -----------------------------------------------------------------
             // Telemetry layout. ONE write per slot — an earlier version had
             // several values sharing slots, which silently overwrote the gyro.
-            //   0-4  coil current, raw ADC counts: coil 1-4 then voice coil
+            //   0-4  coil current in mA (duty divided out): coil 1-4 then voice coil
             //   5    temperature, hundredths of a degree C
             //   6-8  gyro X, Y, Z
             //   9    status: low byte = driver present mask,
             //               high byte = health flags
             // -----------------------------------------------------------------
             for (uint8_t i = 0; i < DRV_COUNT; i++) {
-                hid_report.coil_current[i] = current_raw((drv_id_t)i);
+                hid_report.coil_current[i] = current_coil_ma((drv_id_t)i);
             }
 
             float temp_c = 0.0f;

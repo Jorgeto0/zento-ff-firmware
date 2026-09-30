@@ -12,10 +12,13 @@
 //   COIL1  GPIO44 ADC4      COIL4  GPIO47 ADC7
 //   COIL2  GPIO45 ADC5
 //
-// Scaling is provisional until checked against a known current: the mirror
-// ratio and sense resistor give roughly 2A full scale across the 3.3V range.
-// The raw counts are reported too so the scale can be corrected from real
-// measurements rather than assumption.
+// Scaling (verified): 1/1100 mirror (DRV8873 datasheet) into 1.5 kOhm
+// (R18/R32/R49/R52/R67), 3.3 V over 4095 counts -> 0.000591 A per count.
+//
+// IPROPI only mirrors the high-side FETs. In PH/EN the PWM off-time is
+// low-side brake, where IPROPI reads zero while the coil current keeps
+// flowing. So the averaged reading is (duty x coil current). current_coil_ma()
+// divides the duty back out to report the real coil current.
 // =============================================================================
 
 #include <stdint.h>
@@ -23,6 +26,7 @@
 
 void     current_sense_init(void);
 uint16_t current_raw(drv_id_t id);      // 0-4095, straight from the ADC
-float    current_amps(drv_id_t id);     // provisional scaling
+float    current_amps(drv_id_t id);     // averaged high-side (supply) current
+uint16_t current_coil_ma(drv_id_t id);  // real coil current, milliamps
 
 #endif // CURRENT_SENSE_H

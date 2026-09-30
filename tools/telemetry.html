@@ -119,7 +119,7 @@
       <div class="row"><span class="label">Coil 3</span><span class="val" id="cur3">—</span></div>
       <div class="row"><span class="label">Coil 4</span><span class="val" id="cur4">—</span></div>
       <div class="row"><span class="label">Voice coil</span><span class="val" id="curv">—</span></div>
-      <div class="note">1.5 kΩ sense, 1/1100 mirror: 2.42 A full scale.</div>
+      <div class="note">Real coil current while driving.</div>
     </div>
 
     <div class="card">
@@ -180,10 +180,9 @@ function render(dv) {
   const btn = dv.getUint8(8);
   [...$('buttons').children].forEach((c,i) => c.className = 'chip' + ((btn>>i)&1 ? ' on' : ''));
 
-  // Slots 0-4: coil current, averaged ADC counts.
-  // I = counts * 3.3/4095 / 1500 ohm * 1100 (DRV8873 IPROPI mirror)
-  const A_PER_COUNT = 3.3 / 4095 / 1500 * 1100;
-  const amps = c => (c * A_PER_COUNT).toFixed(2) + ' A';
+  // Slots 0-4: real coil current in milliamps, duty already divided out
+  // in firmware (current_coil_ma).
+  const amps = ma => (ma / 1000).toFixed(2) + ' A';
   const coils = [0,1,2,3,4].map(i => slot(dv, i));
   $('cur1').textContent = amps(coils[0]);
   $('cur2').textContent = amps(coils[1]);

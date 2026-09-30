@@ -2,6 +2,7 @@
 #include "config.h"
 #include "hardware/adc.h"
 #include "hardware/gpio.h"
+#include "coil_pwm.h"
 
 // ADC input index per driver, in drv_id_t order: COIL1..COIL4 then VC1
 static const uint8_t adc_ch[DRV_COUNT] = { 4, 5, 6, 7, 3 };
@@ -37,4 +38,19 @@ float current_amps(drv_id_t id) {
     //   3.3 V over 4095 counts -> 2.42 A full scale, 0.000591 A per count
     const float volts = (float)current_raw(id) * (3.3f / 4095.0f);
     return volts / 1500.0f * 1100.0f;
+}
+
+uint16_t current_coil_ma(drv_id_t id) {
+    if (id >= DRV_COUNT) return 0;
+    float amps = current_amps(id);
+
+    // Divide out the duty. Below 5% the division would amplify ADC noise
+    // (one count is 0.6 mA), so report the plain reading there.
+    uint16_t lvl = coil_get_level(id);
+    float duty = (float)lvl / (float)(COIL_PWM_WRAP + 1u);
+    if (duty >= 0.05f) amps /= duty;
+
+    float ma = amps * 1000.0f;
+    if (ma > 65535.0f) ma = 65535.0f;
+    return (uint16_t)(ma + 0.5f);
 }
