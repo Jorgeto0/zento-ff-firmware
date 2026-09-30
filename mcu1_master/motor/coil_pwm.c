@@ -7,15 +7,28 @@ static const uint8_t pwm_pin[DRV_COUNT] = {
     M_PWM_COIL1_PIN, M_PWM_COIL2_PIN, M_PWM_COIL3_PIN,
     M_PWM_COIL4_PIN, M_PWM_VC1_PIN
 };
-static uint16_t last_level[DRV_COUNT] = {0};
-
 static const uint8_t dir_pin[DRV_COUNT] = {
     M_DIR_COIL1_PIN, M_DIR_COIL2_PIN, M_DIR_COIL3_PIN,
     M_DIR_COIL4_PIN, M_DIR_VC1_PIN
 };
 
+// cmd_level: what the host asked for (after the 6V cap).
+// scale_q16: current-limit scale, 65536 = 1.0, set by current_limit.c.
+// last_level: what is actually on the pin = cmd_level * scale.
+static uint16_t cmd_level[DRV_COUNT]  = {0};
+static uint32_t scale_q16[DRV_COUNT];
+static uint16_t last_level[DRV_COUNT] = {0};
+
+static void apply(drv_id_t id) {
+    uint16_t out = (uint16_t)(((uint32_t)cmd_level[id] * scale_q16[id]) >> 16);
+    last_level[id] = out;
+    pwm_set_gpio_level(pwm_pin[id], out);
+}
+
 void coil_pwm_init(void) {
     for (uint8_t i = 0; i < DRV_COUNT; i++) {
+        scale_q16[i] = COIL_SCALE_ONE;
+
         gpio_set_function(pwm_pin[i], GPIO_FUNC_PWM);
         uint slice = pwm_gpio_to_slice_num(pwm_pin[i]);
         pwm_set_wrap(slice, COIL_PWM_WRAP);
@@ -42,17 +55,33 @@ void coil_set_force(drv_id_t id, int16_t force) {
     // 6V stick coils on the bypassed 12V rail are capped; the 12V voice
     // coil is not.
     if (id != DRV_VC1 && lvl > COIL_MAX_DUTY) lvl = COIL_MAX_DUTY;
-    last_level[id] = lvl;
-    pwm_set_gpio_level(pwm_pin[id], lvl);
+    cmd_level[id] = lvl;
+    apply(id);
+}
+
+void coil_set_scale_q16(drv_id_t id, uint32_t q16) {
+    if (id >= DRV_COUNT) return;
+    if (q16 > COIL_SCALE_ONE) q16 = COIL_SCALE_ONE;
+    scale_q16[id] = q16;
+    apply(id);
+}
+
+uint32_t coil_get_scale_q16(drv_id_t id) {
+    return (id < DRV_COUNT) ? scale_q16[id] : COIL_SCALE_ONE;
 }
 
 void coil_all_off(void) {
     for (uint8_t i = 0; i < DRV_COUNT; i++) {
-        pwm_set_gpio_level(pwm_pin[i], 0);
+        cmd_level[i]  = 0;
         last_level[i] = 0;      // keep readback honest after a timeout
+        pwm_set_gpio_level(pwm_pin[i], 0);
     }
 }
 
 uint16_t coil_get_level(drv_id_t id) {
     return (id < DRV_COUNT) ? last_level[id] : 0;
+}
+
+uint16_t coil_get_cmd_level(drv_id_t id) {
+    return (id < DRV_COUNT) ? cmd_level[id] : 0;
 }

@@ -1,3 +1,4 @@
+#include <string.h>
 // =============================================================================
 // mcu1_master/main.c — MCU1 Master Boot Sequence
 // Target: RP2350B — Master role
@@ -21,6 +22,8 @@
 #include "motor/drv8873.h"
 #include "motor/coil_pwm.h"
 #include "motor/current_sense.h"
+#include "motor/current_limit.h"
+#include "motor/coil_settings.h"
 
 // -----------------------------------------------------------------------------
 // System clock frequency
@@ -94,6 +97,7 @@ int main(void) {
     drv_init_all();
     coil_pwm_init();
     current_sense_init();
+    bool settings_loaded = coil_settings_load();   // saved amp settings
 
     // Step 6 — Start the inter-MCU PIO bus (master owns the clock)
     if (pio_master_init() != PIO_BUS_OK) {
@@ -132,6 +136,8 @@ int main(void) {
     bool     bus_alive      = false;   // drives the LED rate
     bool     bus_ever_alive = false;   // latched — never goes back down
     bool     led_on         = false;
+    bool     limits_reply_pending = false;
+    bool     settings_saved = settings_loaded;   // flash matches live values
 
     while (1) {
 
@@ -146,6 +152,13 @@ int main(void) {
         // 0x10 followed by five signed 16-bit values, little-endian, for
         // coils 1-4 then the voice coil.
         #define CMD_SET_FORCES 0x10
+        // 0x11 followed by five unsigned 16-bit limits in mA, little-endian,
+        // coils 1-4 then the voice coil. 0 = no limit.
+        #define CMD_SET_LIMITS 0x11
+        // 0x12 asks for the current amp settings. The reply (and the reply
+        // to 0x11) goes back as config report ID 2:
+        //   [0x12][5 x uint16 mA][saved: 1 = flash holds these values]
+        #define CMD_GET_LIMITS 0x12
         if (hid_get_config_received()) {
             hid_config_report_t cfg;
             hid_get_last_config(&cfg);
@@ -188,8 +201,36 @@ int main(void) {
                     dbg_drive_mask |= (uint8_t)(1u << i);
                     if (lv > dbg_max_level) dbg_max_level = lv;
                 }
+            } else if (cfg.command == CMD_SET_LIMITS) {
+                for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                    uint16_t ma = (uint16_t)((uint16_t)cfg.payload[i*2] |
+                                             ((uint16_t)cfg.payload[i*2+1] << 8));
+                    if (ma > 2420u) ma = 2420u;     // sense full scale
+                    current_limit_set_ma((drv_id_t)i, ma);
+                }
+                settings_saved = coil_settings_save();
+                limits_reply_pending = true;
+            } else if (cfg.command == CMD_GET_LIMITS) {
+                limits_reply_pending = true;
             }
         }
+
+        // Answer a settings request as soon as the endpoint is free.
+        if (limits_reply_pending) {
+            hid_config_report_t rep;
+            memset(&rep, 0, sizeof(rep));
+            rep.command = CMD_GET_LIMITS;
+            for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                uint16_t ma = current_limit_get_ma((drv_id_t)i);
+                rep.payload[i*2]     = (uint8_t)(ma & 0xFF);
+                rep.payload[i*2 + 1] = (uint8_t)(ma >> 8);
+            }
+            rep.payload[DRV_COUNT * 2] = settings_saved ? 1u : 0u;
+            if (hid_send_config(&rep)) limits_reply_pending = false;
+        }
+
+        // Hold each coil at or under its current limit.
+        current_limit_task();
 
         // Safety: stop the coils if the host goes quiet. A closed browser tab
         // should not leave them energised.
@@ -292,7 +333,14 @@ int main(void) {
             //   buttons   bit per coil driven, bit 0 = coil 1, bit 4 = VC1
             (void)dbg_rx_count;
             hid_report.stick2_x = (int16_t)dbg_fault_diag;
-            hid_report.stick2_y = (int16_t)dbg_max_level;
+            // Live level after the current limit, not the requested one
+            uint16_t live_lvl = 0;
+            for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                uint16_t lv = coil_get_level((drv_id_t)i);
+                if (lv > live_lvl) live_lvl = lv;
+            }
+            (void)dbg_max_level;
+            hid_report.stick2_y = (int16_t)live_lvl;
             hid_report.buttons  = dbg_drive_mask;
 
             hid_report.coil_current[9] =

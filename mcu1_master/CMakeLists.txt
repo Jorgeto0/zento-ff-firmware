@@ -23,6 +23,8 @@ add_executable(mcu1_master
     motor/drv8873.c
     motor/coil_pwm.c
     motor/current_sense.c
+    motor/current_limit.c
+    motor/coil_settings.c
     pio_bus/pio_master.c
     usb_hid/hid_descriptors.c
     usb_hid/hid.c
@@ -43,6 +45,8 @@ target_link_libraries(mcu1_master
     hardware_pwm
     hardware_i2c
     hardware_adc
+    hardware_flash
+    hardware_sync
     pico_float_pico
     pico_double_pico
     tinyusb_device

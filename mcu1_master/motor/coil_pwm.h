@@ -38,4 +38,12 @@ void coil_all_off(void);
 // Read back the PWM level last written, for diagnosis.
 uint16_t coil_get_level(drv_id_t id);
 
+// Level the host asked for, before the current limit scales it down.
+uint16_t coil_get_cmd_level(drv_id_t id);
+
+// Current-limit scale, Q16 (65536 = 1.0). Output = requested level x scale.
+#define COIL_SCALE_ONE  65536u
+void     coil_set_scale_q16(drv_id_t id, uint32_t q16);
+uint32_t coil_get_scale_q16(drv_id_t id);
+
 #endif // COIL_PWM_H

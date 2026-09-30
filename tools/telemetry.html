@@ -53,6 +53,7 @@
   .note { color:var(--dim); font-size:12.5px; margin-top:10px; }
   .unsupported { background:rgba(255,176,32,.1); border:1px solid var(--warn);
     color:var(--warn); padding:12px 14px; border-radius:10px; margin-bottom:20px; font-size:13.5px; }
+  .lim { width:72px; background:transparent; color:inherit; border:1px solid currentColor; border-radius:6px; padding:3px 6px; font:inherit; text-align:right; opacity:.85; }
 </style>
 </head>
 <body>
@@ -144,6 +145,17 @@
       <div class="row"><span class="label">PWM level</span><span class="val" id="dbglvl">—</span></div>
       <div class="row"><span class="label">Driver status</span><span class="val" id="dbgst">—</span></div>
     </div>
+
+    <div class="card">
+      <h2>Amps per coil</h2>
+      <div class="row"><span class="label">Coil 1 (A)</span><input class="lim" type="number" min="0" max="2.4" step="0.05" value="0.50"></div>
+      <div class="row"><span class="label">Coil 2 (A)</span><input class="lim" type="number" min="0" max="2.4" step="0.05" value="0.50"></div>
+      <div class="row"><span class="label">Coil 3 (A)</span><input class="lim" type="number" min="0" max="2.4" step="0.05" value="0.50"></div>
+      <div class="row"><span class="label">Coil 4 (A)</span><input class="lim" type="number" min="0" max="2.4" step="0.05" value="0.50"></div>
+      <div class="row"><span class="label">Voice coil (A)</span><input class="lim" type="number" min="0" max="2.4" step="0.05" value="0"></div>
+      <button class="ghost" id="setlim" style="margin-top:12px" disabled>Save to board</button>
+      <div class="note" id="limnote">0 = no limit. Connect to load the board's settings.</div>
+    </div>
   </div>
 
   <div class="card" style="margin-top:14px">
@@ -171,14 +183,17 @@ function pill(el, ok, text) {
 const slot  = (dv, i) => dv.getUint16(9 + i * 2, true);
 const slotS = (dv, i) => dv.getInt16 (9 + i * 2, true);
 
+let noCur = 0;
 function render(dv) {
   $('s1x').textContent = dv.getInt16(0, true);
   $('s1y').textContent = dv.getInt16(2, true);
-  $('s2x').textContent = dv.getInt16(4, true);
-  $('s2y').textContent = dv.getInt16(6, true);
+  // Stick 2 fields carry force debug until MCU2 relays the real stick
+  $('s2x').textContent = '—';
+  $('s2y').textContent = '—';
 
   const btn = dv.getUint8(8);
-  [...$('buttons').children].forEach((c,i) => c.className = 'chip' + ((btn>>i)&1 ? ' on' : ''));
+  // Buttons byte carries the force-debug coil mask until the expander is fitted
+  [...$('buttons').children].forEach(c => c.className = 'chip');
 
   // Slots 0-4: real coil current in milliamps, duty already divided out
   // in firmware (current_coil_ma).
@@ -205,6 +220,12 @@ function render(dv) {
     const hits = [];
     fbits.forEach((n,i) => { if ((f>>i)&1) hits.push(n); });
     dbits.forEach((n,i) => { if ((d>>i)&1) hits.push(n); });
+    // Driven at a real duty but no current for a few reports in a row:
+    // the driver can't flag an open coil in PH/EN mode, so say it here.
+    const lvlPct = dv.getUint16(6, true) / 5000 * 100;
+    const dead = [0,1,2,3,4].some(i => ((dm>>i)&1) && coils[i] < 20);
+    noCur = (dead && lvlPct >= 5) ? noCur + 1 : 0;
+    if (noCur >= 3) hits.push('No current, check coil wiring');
     $('dbgst').textContent = hits.length ? hits.join(', ') : 'OK, no faults';
   }
 
@@ -245,7 +266,12 @@ $('connect').onclick = async () => {
     $('status').className = 'status live';
     $('connect').textContent = 'Reconnect';
     $('send').disabled = false;
-    device.addEventListener('inputreport', e => { if (e.reportId === 1) render(e.data); });
+    $('setlim').disabled = false;
+    device.addEventListener('inputreport', e => {
+      if (e.reportId === 1) render(e.data);
+      if (e.reportId === 2) settingsReply(e.data);
+    });
+    askSettings();
   } catch (err) {
     $('status').textContent = 'Failed: ' + err.message;
   }
@@ -265,6 +291,38 @@ async function drive(pct) {
   dv.setInt16(1 + (+$('coil').value) * 2, Math.round(pct / 100 * 32767), true);
   try { await device.sendReport(2, buf); } catch (e) {}
 }
+
+// Amps per coil. 0x11 sets and saves, 0x12 asks. The board answers both
+// with config report 2: [0x12][5 x uint16 mA][saved flag].
+async function askSettings() {
+  const buf = new Uint8Array(11);
+  buf[0] = 0x12;
+  try { await device.sendReport(2, buf); } catch (e) {}
+}
+function settingsReply(dv) {
+  if (dv.getUint8(0) !== 0x12) return;
+  [...document.querySelectorAll('.lim')].forEach((el, i) => {
+    el.value = (dv.getUint16(1 + i * 2, true) / 1000).toFixed(2);
+  });
+  const saved = dv.getUint8(11) === 1;
+  $('limnote').textContent = saved
+    ? '0 = no limit. Saved on the board, kept after power-off.'
+    : '0 = no limit. Board defaults (0.5 A per stick coil), nothing saved yet.';
+  $('setlim').textContent = 'Save to board';
+}
+$('setlim').onclick = async () => {
+  if (!device) return;
+  const buf = new Uint8Array(11);            // command byte + 5 x uint16 mA
+  buf[0] = 0x11;
+  const dv = new DataView(buf.buffer);
+  [...document.querySelectorAll('.lim')].forEach((el, i) => {
+    const ma = Math.max(0, Math.min(2420, Math.round((+el.value || 0) * 1000)));
+    dv.setUint16(1 + i * 2, ma, true);
+  });
+  $('setlim').textContent = 'Saving…';
+  try { await device.sendReport(2, buf); }
+  catch (e) { $('setlim').textContent = 'Failed, retry'; }
+};
 
 const startDrive = () => {
   if (sendTimer) return;
