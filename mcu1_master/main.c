@@ -120,6 +120,8 @@ int main(void) {
     uint32_t tmag_ms        = to_ms_since_boot(get_absolute_time());
     hid_primary_report_t hid_report = {0};
     uint32_t last_force_ms = 0;      // 0 means no command yet
+    uint16_t dbg_rx_count = 0;       // force commands received
+    uint16_t dbg_max_level = 0;      // highest PWM level written
     uint16_t cfg_rx_count = 0;      // output reports received, any kind
     uint16_t cfg_cmd_seen = 0;      // first byte of the last one
     int16_t  vc_force_dbg = 0;      // force value parsed for VC1
@@ -152,6 +154,8 @@ int main(void) {
                     int16_t f = (int16_t)((uint16_t)cfg.payload[i*2] |
                                           ((uint16_t)cfg.payload[i*2+1] << 8));
                     coil_set_force((drv_id_t)i, f);
+                    uint16_t lv = coil_get_level((drv_id_t)i);
+                    if (lv > dbg_max_level) dbg_max_level = lv;
                     if (i == DRV_VC1) vc_force_dbg = f;
                 }
 
@@ -165,6 +169,7 @@ int main(void) {
                 drv_read_reg(DRV_VC1, DRV_REG_DIAG,  &pd, NULL);
                 post_drive_diag = (uint16_t)(pf | ((uint16_t)pd << 8));
                 last_force_ms = to_ms_since_boot(get_absolute_time());
+                dbg_rx_count++;
             }
         }
 
@@ -256,6 +261,12 @@ int main(void) {
             if (as_status   == AS_OK)    health |= 0x08;
             extern uint16_t mcp_found_20_27;
             if (mcp_found_20_27)         health |= 0x10;
+
+            // TEMPORARY: stick 2 is unused until MCU2 relays its data, so
+            // borrow it to show the force path. X = commands received,
+            // Y = highest PWM level written (2499 = 50% cap).
+            hid_report.stick2_x = (int16_t)dbg_rx_count;
+            hid_report.stick2_y = (int16_t)dbg_max_level;
 
             hid_report.coil_current[9] =
                 (uint16_t)(drv_present_mask() | ((uint16_t)health << 8));
