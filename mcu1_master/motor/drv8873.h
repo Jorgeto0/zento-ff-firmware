@@ -47,6 +47,10 @@
 #define DRV_LOCK_SHIFT      4
 #define DRV_LOCK_UNLOCK     0x4     // 100b unlocks IC1
 #define DRV_LOCK_LOCK       0x3     // 011b locks it
+// IC4: active open-load detection. Works only with high-side recirculation,
+// which is what PH/EN gives when EN is low (Table 4). On detection the
+// bridge keeps driving; OL1/OL2 in DIAG latch until CLR_FLT (Table 13).
+#define DRV_IC4_EN_OLA      (1u<<4)
 
 // Status byte in every reply, 7.5.1.2
 #define DRV_ST_OTW          (1u<<5)
@@ -76,5 +80,6 @@ drv_result_t drv_init_all(void);
 drv_result_t drv_read_reg(drv_id_t id, uint8_t addr, uint8_t *out, uint8_t *status);
 drv_result_t drv_write_reg(drv_id_t id, uint8_t addr, uint8_t value);
 drv_result_t drv_read_fault(drv_id_t id, uint8_t *fault, uint8_t *diag);
+drv_result_t drv_clear_faults(drv_id_t id);   // CLR_FLT, keeps IC3 unlocked
 
 #endif // DRV8873_H

@@ -29,7 +29,7 @@
 void coil_pwm_init(void);
 
 // force: -32768 to +32767. Sign sets direction, magnitude sets duty.
-// Zero coasts (EN low), which is Hi-Z on both outputs per Table 4.
+// Zero holds EN low: both outputs high, high-side brake (Table 4).
 void coil_set_force(drv_id_t id, int16_t force);
 
 // Stop every coil. Called on fault or loss of host contact.

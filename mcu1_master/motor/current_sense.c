@@ -2,7 +2,6 @@
 #include "config.h"
 #include "hardware/adc.h"
 #include "hardware/gpio.h"
-#include "coil_pwm.h"
 
 // ADC input index per driver, in drv_id_t order: COIL1..COIL4 then VC1
 static const uint8_t adc_ch[DRV_COUNT] = { 4, 5, 6, 7, 3 };
@@ -15,10 +14,9 @@ void current_sense_init(void) {
     }
 }
 
-// IPROPI mirrors only the high-side FET current (DRV8873 datasheet). In
-// PH/EN mode the PWM off-time is low-side brake, so the signal is chopped at
-// the 25 kHz PWM rate and a single sample can land on the zero part. Average
-// 64 samples (~130 us) to get the true mean.
+// IPROPI mirrors the high-side FET current (DRV8873 datasheet). Average 64
+// samples (~130 us, 20 samples per 25 kHz PWM period) to smooth ripple and
+// ADC noise. Datasheet accuracy: +/-50 mA below 1 A, +/-5% above.
 #define CURRENT_AVG_SAMPLES 64u
 
 uint16_t current_raw(drv_id_t id) {
@@ -42,15 +40,11 @@ float current_amps(drv_id_t id) {
 
 uint16_t current_coil_ma(drv_id_t id) {
     if (id >= DRV_COUNT) return 0;
-    float amps = current_amps(id);
-
-    // Divide out the duty. Below 5% the division would amplify ADC noise
-    // (one count is 0.6 mA), so report the plain reading there.
-    uint16_t lvl = coil_get_level(id);
-    float duty = (float)lvl / (float)(COIL_PWM_WRAP + 1u);
-    if (duty >= 0.05f) amps /= duty;
-
-    float ma = amps * 1000.0f;
+    // No duty correction: in PH/EN mode the PWM off-time is high-side
+    // recirculation (Table 4: EN=0 -> OUT1=H, OUT2=H), so IPROPI keeps
+    // mirroring the coil current through the off-time. The averaged
+    // reading is already the coil current.
+    float ma = current_amps(id) * 1000.0f;
     if (ma > 65535.0f) ma = 65535.0f;
     return (uint16_t)(ma + 0.5f);
 }

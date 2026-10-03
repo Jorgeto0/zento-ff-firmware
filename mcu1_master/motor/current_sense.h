@@ -15,10 +15,10 @@
 // Scaling (verified): 1/1100 mirror (DRV8873 datasheet) into 1.5 kOhm
 // (R18/R32/R49/R52/R67), 3.3 V over 4095 counts -> 0.000591 A per count.
 //
-// IPROPI only mirrors the high-side FETs. In PH/EN the PWM off-time is
-// low-side brake, where IPROPI reads zero while the coil current keeps
-// flowing. So the averaged reading is (duty x coil current). current_coil_ma()
-// divides the duty back out to report the real coil current.
+// IPROPI mirrors the high-side FETs. In PH/EN the PWM off-time is high-side
+// recirculation (Table 4), so the coil current stays visible on IPROPI the
+// whole period; no duty correction is needed. Accuracy is +/-50 mA below 1 A
+// and the datasheet's monitoring range starts at 100 mA.
 // =============================================================================
 
 #include <stdint.h>
@@ -27,6 +27,6 @@
 void     current_sense_init(void);
 uint16_t current_raw(drv_id_t id);      // 0-4095, straight from the ADC
 float    current_amps(drv_id_t id);     // averaged high-side (supply) current
-uint16_t current_coil_ma(drv_id_t id);  // real coil current, milliamps
+uint16_t current_coil_ma(drv_id_t id);  // coil current, milliamps
 
 #endif // CURRENT_SENSE_H

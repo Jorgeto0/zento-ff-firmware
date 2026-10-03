@@ -156,6 +156,17 @@
       <button class="ghost" id="setlim" style="margin-top:12px" disabled>Save to board</button>
       <div class="note" id="limnote">0 = no limit. Connect to load the board's settings.</div>
     </div>
+
+    <div class="card">
+      <h2>Coil self-test</h2>
+      <div class="row"><span class="label">Coil 1</span><span class="val" id="st0">—</span></div>
+      <div class="row"><span class="label">Coil 2</span><span class="val" id="st1">—</span></div>
+      <div class="row"><span class="label">Coil 3</span><span class="val" id="st2">—</span></div>
+      <div class="row"><span class="label">Coil 4</span><span class="val" id="st3">—</span></div>
+      <div class="row"><span class="label">Voice coil</span><span class="val" id="st4">—</span></div>
+      <button class="ghost" id="runtest" style="margin-top:12px" disabled>Run test</button>
+      <div class="note" id="stnote">Drives each coil at 50% for a moment, about 2 seconds total.</div>
+    </div>
   </div>
 
   <div class="card" style="margin-top:14px">
@@ -195,8 +206,7 @@ function render(dv) {
   // Buttons byte carries the force-debug coil mask until the expander is fitted
   [...$('buttons').children].forEach(c => c.className = 'chip');
 
-  // Slots 0-4: real coil current in milliamps, duty already divided out
-  // in firmware (current_coil_ma).
+  // Slots 0-4: coil current in milliamps (current_coil_ma).
   const amps = ma => (ma / 1000).toFixed(2) + ' A';
   const coils = [0,1,2,3,4].map(i => slot(dv, i));
   $('cur1').textContent = amps(coils[0]);
@@ -267,9 +277,10 @@ $('connect').onclick = async () => {
     $('connect').textContent = 'Reconnect';
     $('send').disabled = false;
     $('setlim').disabled = false;
+    $('runtest').disabled = false;
     device.addEventListener('inputreport', e => {
       if (e.reportId === 1) render(e.data);
-      if (e.reportId === 2) settingsReply(e.data);
+      if (e.reportId === 2) { settingsReply(e.data); selftestReply(e.data); }
     });
     askSettings();
   } catch (err) {
@@ -323,6 +334,41 @@ $('setlim').onclick = async () => {
   try { await device.sendReport(2, buf); }
   catch (e) { $('setlim').textContent = 'Failed, retry'; }
 };
+
+// Coil self-test (0x13). Reply per coil: idle raw, mA, FAULT, DIAG.
+// DIAG bit 7 = OL1, bit 6 = OL2: the driver's own open-load check.
+$('runtest').onclick = async () => {
+  if (!device) return;
+  const buf = new Uint8Array(11);
+  buf[0] = 0x13;
+  for (let i = 0; i < 5; i++) $('st' + i).textContent = '…';
+  $('runtest').textContent = 'Testing…';
+  $('runtest').disabled = true;
+  try { await device.sendReport(2, buf); }
+  catch (e) { $('runtest').textContent = 'Failed, retry'; $('runtest').disabled = false; }
+};
+function selftestReply(dv) {
+  if (dv.getUint8(0) !== 0x13) return;
+  const fnames = ['','Overheat shutdown','Overcurrent','Charge pump low','Undervoltage','Temp warning'];
+  const idle = [];
+  for (let i = 0; i < 5; i++) {
+    const o = 1 + i * 6;
+    idle.push(dv.getUint16(o, true));
+    const ma = dv.getUint16(o + 2, true);
+    const f = dv.getUint8(o + 4), d = dv.getUint8(o + 5);
+    const amps = (ma / 1000).toFixed(2) + ' A';
+    const other = fnames.filter((n, b) => n && ((f >> b) & 1));
+    let v;
+    if (other.length)       v = amps + ', ' + other.join(', ');
+    else if (d & 0xC0)      v = amps + ', open: no current path';
+    else if (ma < 50)       v = amps + ', connected but reading low';
+    else                    v = amps + ', OK';
+    $('st' + i).textContent = v;
+  }
+  $('stnote').textContent = 'Zero reference (raw, all off): ' + idle.join(', ');
+  $('runtest').textContent = 'Run test';
+  $('runtest').disabled = false;
+}
 
 const startDrive = () => {
   if (sendTimer) return;

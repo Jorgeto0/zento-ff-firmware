@@ -116,6 +116,13 @@ drv_result_t drv_init_all(void) {
         uint8_t v = (uint8_t)((ic1 & ~0x03u) | DRV_MODE_PH_EN);
         drv_write_reg((drv_id_t)i, DRV_REG_IC1, v);
 
+        // Active open-load detection on. Read-modify-write keeps the
+        // default ITRIP settings in the low bits.
+        uint8_t ic4 = 0;
+        if (drv_read_reg((drv_id_t)i, DRV_REG_IC4, &ic4, NULL) == DRV_OK) {
+            drv_write_reg((drv_id_t)i, DRV_REG_IC4, (uint8_t)(ic4 | DRV_IC4_EN_OLA));
+        }
+
         // Clear any power-on faults
         drv_write_reg((drv_id_t)i, DRV_REG_IC3,
                       (uint8_t)(DRV_CLR_FLT |
@@ -128,4 +135,9 @@ drv_result_t drv_init_all(void) {
         return DRV_ERR_DEAD;
     }
     return DRV_OK;
+}
+
+drv_result_t drv_clear_faults(drv_id_t id) {
+    return drv_write_reg(id, DRV_REG_IC3,
+                         (uint8_t)(DRV_CLR_FLT | (DRV_LOCK_UNLOCK << DRV_LOCK_SHIFT)));
 }

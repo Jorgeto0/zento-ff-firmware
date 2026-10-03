@@ -24,6 +24,7 @@
 #include "motor/current_sense.h"
 #include "motor/current_limit.h"
 #include "motor/coil_settings.h"
+#include "motor/coil_selftest.h"
 
 // -----------------------------------------------------------------------------
 // System clock frequency
@@ -137,6 +138,7 @@ int main(void) {
     bool     bus_ever_alive = false;   // latched — never goes back down
     bool     led_on         = false;
     bool     limits_reply_pending = false;
+    bool     selftest_reply_pending = false;
     bool     settings_saved = settings_loaded;   // flash matches live values
 
     while (1) {
@@ -159,12 +161,15 @@ int main(void) {
         // to 0x11) goes back as config report ID 2:
         //   [0x12][5 x uint16 mA][saved: 1 = flash holds these values]
         #define CMD_GET_LIMITS 0x12
+        // 0x13 runs the coil self-test. Reply, config report ID 2:
+        //   [0x13][per coil x5: idle_raw u16, mA u16, FAULT u8, DIAG u8]
+        #define CMD_SELF_TEST  0x13
         if (hid_get_config_received()) {
             hid_config_report_t cfg;
             hid_get_last_config(&cfg);
             cfg_rx_count++;
             cfg_cmd_seen = cfg.command;
-            if (cfg.command == CMD_SET_FORCES) {
+            if (cfg.command == CMD_SET_FORCES && !selftest_running()) {
                 for (uint8_t i = 0; i < DRV_COUNT; i++) {
                     int16_t f = (int16_t)((uint16_t)cfg.payload[i*2] |
                                           ((uint16_t)cfg.payload[i*2+1] << 8));
@@ -212,7 +217,31 @@ int main(void) {
                 limits_reply_pending = true;
             } else if (cfg.command == CMD_GET_LIMITS) {
                 limits_reply_pending = true;
+            } else if (cfg.command == CMD_SELF_TEST) {
+                if (!selftest_running()) {
+                    last_force_ms = 0;          // keep the timeout out of it
+                    selftest_start();
+                }
             }
+        }
+
+        // Coil self-test runs alongside everything else; reply when done.
+        if (selftest_task()) selftest_reply_pending = true;
+        if (selftest_reply_pending && !limits_reply_pending) {
+            hid_config_report_t rep;
+            memset(&rep, 0, sizeof(rep));
+            rep.command = CMD_SELF_TEST;
+            const selftest_result_t *r = selftest_results();
+            for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                uint8_t *p = &rep.payload[i * 6];
+                p[0] = (uint8_t)(r[i].idle_raw & 0xFF);
+                p[1] = (uint8_t)(r[i].idle_raw >> 8);
+                p[2] = (uint8_t)(r[i].ma & 0xFF);
+                p[3] = (uint8_t)(r[i].ma >> 8);
+                p[4] = r[i].fault;
+                p[5] = r[i].diag;
+            }
+            if (hid_send_config(&rep)) selftest_reply_pending = false;
         }
 
         // Answer a settings request as soon as the endpoint is free.
@@ -294,7 +323,7 @@ int main(void) {
             // -----------------------------------------------------------------
             // Telemetry layout. ONE write per slot — an earlier version had
             // several values sharing slots, which silently overwrote the gyro.
-            //   0-4  coil current in mA (duty divided out): coil 1-4 then voice coil
+            //   0-4  coil current in mA: coil 1-4 then voice coil
             //   5    temperature, hundredths of a degree C
             //   6-8  gyro X, Y, Z
             //   9    status: low byte = driver present mask,
