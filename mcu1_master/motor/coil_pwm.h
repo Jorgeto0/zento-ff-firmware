@@ -20,11 +20,12 @@
 #define COIL_PWM_HZ     25000u
 #define COIL_PWM_WRAP   4999u       // 125 MHz / 5000 = 25 kHz
 
-// Stick coils 1-4 are rated 6V. Their 6V buck is bypassed on the current
-// hardware, so the drivers see 12V. 50% duty gives a 6V average, matching
-// the coil rating. Do not raise this while the bypass is in place.
-// The voice coil (VC1) is a 12V part on VCC (U19 VM) and is NOT capped.
-#define COIL_MAX_DUTY   (COIL_PWM_WRAP / 2u)
+// Stick coil duty cap. Was 50% on the assumption the stick rail (6V_1) was
+// a bypassed 12V. Measured on the board: 4.05V across a coil at 50%, so the
+// rail is ~8V. At 100% that is ~8V / 15.5 ohm = ~0.52A per coil, which the
+// client confirmed is fine for these coils. So no cap for now.
+// Lower this again if the rail changes (e.g. buck back to 6V or up to 12V).
+#define COIL_MAX_DUTY   COIL_PWM_WRAP     // 100%
 
 void coil_pwm_init(void);
 

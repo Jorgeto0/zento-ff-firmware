@@ -12,7 +12,7 @@ static const uint8_t dir_pin[DRV_COUNT] = {
     M_DIR_COIL4_PIN, M_DIR_VC1_PIN
 };
 
-// cmd_level: what the host asked for (after the 6V cap).
+// cmd_level: what the host asked for (after the stick duty cap).
 // scale_q16: current-limit scale, 65536 = 1.0, set by current_limit.c.
 // last_level: what is actually on the pin = cmd_level * scale.
 static uint16_t cmd_level[DRV_COUNT]  = {0};
@@ -52,8 +52,7 @@ void coil_set_force(drv_id_t id, int16_t force) {
 
     gpio_put(dir_pin[id], reverse ? 1 : 0);
     uint16_t lvl = (uint16_t)((mag * COIL_PWM_WRAP) / 32767u);
-    // 6V stick coils on the bypassed 12V rail are capped; the 12V voice
-    // coil is not.
+    // Stick coils use the cap in coil_pwm.h; the 12V voice coil never does.
     if (id != DRV_VC1 && lvl > COIL_MAX_DUTY) lvl = COIL_MAX_DUTY;
     cmd_level[id] = lvl;
     apply(id);

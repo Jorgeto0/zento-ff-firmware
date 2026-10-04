@@ -7,7 +7,7 @@
 // Each coil has a limit in milliamps (0 = no limit). Every 2 ms the measured
 // coil current is compared with the limit and the PWM output is scaled down
 // until it sits at the limit. The host's requested force is never exceeded;
-// the limit only reduces it. The 6V duty cap in coil_pwm.h still applies on
+// the limit only reduces it. The stick duty cap in coil_pwm.h still applies on
 // top as a hard ceiling for the stick coils.
 //
 // Defaults at boot: 500 mA on coils 1-4, no limit on the voice coil.

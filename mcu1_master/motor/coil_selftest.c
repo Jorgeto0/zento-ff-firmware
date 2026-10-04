@@ -6,7 +6,7 @@
 #define SETTLE_MS   60u      // all off before measuring the zero reference
 #define DRIVE_MS    250u     // per coil
 #define REST_MS     60u      // off between coils
-#define TEST_FORCE  16384    // 50% of full scale; stick coils cap there anyway
+#define TEST_FORCE  16384    // 50% of full scale, gentle enough for every coil
 
 typedef enum { ST_IDLE, ST_SETTLE, ST_DRIVE, ST_REST } st_state_t;
 
