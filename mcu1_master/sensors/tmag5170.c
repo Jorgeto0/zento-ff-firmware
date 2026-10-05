@@ -154,7 +154,10 @@ tmag_result_t tmag_init(void) {
     log_value("TMAG alive, wiring", tmag_wiring);
 
     tmag_write_reg(TMAG_REG_SENSOR_CONFIG,
-                   (uint16_t)(TMAG_MAG_CH_EN_XYZ << TMAG_MAG_CH_EN_SHIFT));
+                   (uint16_t)((TMAG_MAG_CH_EN_XYZ << TMAG_MAG_CH_EN_SHIFT) |
+                              (TMAG_RANGE_IN_USE << 4) |      // Z_RANGE
+                              (TMAG_RANGE_IN_USE << 2) |      // Y_RANGE
+                              (TMAG_RANGE_IN_USE << 0)));     // X_RANGE
     tmag_write_reg(TMAG_REG_DEVICE_CONFIG,
                    (uint16_t)((TMAG_CONV_AVG_1X << TMAG_CONV_AVG_SHIFT) |
                               (TMAG_OP_MODE_ACTIVE << TMAG_OP_MODE_SHIFT)));

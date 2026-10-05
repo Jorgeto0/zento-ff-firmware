@@ -69,6 +69,10 @@
 #define TMAG_RANGE_150MT            0x0     // default
 #define TMAG_RANGE_75MT             0x1     // best resolution
 #define TMAG_RANGE_300MT            0x2     // widest
+// In use: ±300mT on all axes. The chip sits right under the stick's magnet
+// sphere, so smaller ranges saturate (client, 2026-10-05).
+#define TMAG_RANGE_IN_USE           TMAG_RANGE_300MT
+#define TMAG_RANGE_IN_USE_MT        300u    // for tmag_to_mt()
 
 // -----------------------------------------------------------------------------
 // Return codes
