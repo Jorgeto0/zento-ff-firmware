@@ -12,6 +12,18 @@ static const uint8_t dir_pin[DRV_COUNT] = {
     M_DIR_COIL4_PIN, M_DIR_VC1_PIN
 };
 
+// Per-coil direction. The board wires every coil the same way (wire 1 to
+// OUT2, wire 2 to OUT1, checked in the netlist), but coil 3 pulls where the
+// others push for the same command: it is wound or connected the other way.
+// true = flip the sign so every coil does the same thing for the same force.
+static const bool invert[DRV_COUNT] = {
+    false,   // COIL1
+    false,   // COIL2
+    true,    // COIL3 — opposite polarity on the hardware
+    false,   // COIL4
+    false    // VC1
+};
+
 // cmd_level: what the host asked for (after the stick duty cap).
 // scale_q16: current-limit scale, 65536 = 1.0, set by current_limit.c.
 // last_level: what is actually on the pin = cmd_level * scale.
@@ -46,8 +58,9 @@ void coil_set_force(drv_id_t id, int16_t force) {
 
     // Direction from the sign, magnitude from the value. -32768 has no
     // positive counterpart, so clamp it before negating.
-    bool reverse = (force < 0);
-    uint32_t mag = reverse ? (uint32_t)(-(int32_t)force) : (uint32_t)force;
+    bool neg = (force < 0);
+    uint32_t mag = neg ? (uint32_t)(-(int32_t)force) : (uint32_t)force;
+    bool reverse = neg != invert[id];      // direction pin, after polarity
     if (mag > 32767u) mag = 32767u;
 
     gpio_put(dir_pin[id], reverse ? 1 : 0);
