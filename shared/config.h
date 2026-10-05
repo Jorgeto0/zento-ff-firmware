@@ -60,6 +60,12 @@
 #define M_SPI_CS_VC1_PIN         0   // pin 77
 
 // Motor PWM + DIR — 4 coils + 1 voice coil
+// Left stick coil layout (client, 2026-10-05), going clockwise:
+//   COIL1 = RIGHT, COIL2 = DOWN, COIL3 = LEFT, COIL4 = UP
+// Push-pull pairs for the axis effects (centering spring etc.):
+//   X axis: COIL1 (right) with COIL3 (left)
+//   Y axis: COIL2 (down)  with COIL4 (up)
+// COIL3 is wound/wired opposite; corrected in coil_pwm.c (invert table).
 #define M_PWM_COIL1_PIN         28   // pin 36
 #define M_DIR_COIL1_PIN         29   // pin 37
 #define M_PWM_COIL2_PIN         30   // pin 38
