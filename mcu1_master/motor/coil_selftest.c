@@ -65,6 +65,8 @@ bool selftest_task(void) {
         res[coil].ma_full = current_coil_ma((drv_id_t)coil);
         drv_read_reg((drv_id_t)coil, DRV_REG_FAULT, &res[coil].fault, NULL);
         drv_read_reg((drv_id_t)coil, DRV_REG_DIAG,  &res[coil].diag,  NULL);
+        drv_read_reg((drv_id_t)coil, DRV_REG_IC1,   &res[coil].ic1,   NULL);
+        res[coil].reconfig = drv_reconfig_count((drv_id_t)coil);
         coil_set_force((drv_id_t)coil, 0);
         t0    = now_ms();
         state = ST_REST;

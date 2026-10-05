@@ -29,6 +29,8 @@ typedef struct {
     uint16_t ma_full;    // current while driven at 100%
     uint8_t  fault;      // FAULT register after driving
     uint8_t  diag;       // DIAG register after driving (OL1 bit 7, OL2 bit 6)
+    uint8_t  ic1;        // IC1 as read during the test; MODE bits 1:0, 00 = PH/EN
+    uint8_t  reconfig;   // times the driver had lost its config since boot
 } selftest_result_t;
 
 void selftest_start(void);

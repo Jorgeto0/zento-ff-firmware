@@ -163,7 +163,7 @@ int main(void) {
         #define CMD_GET_LIMITS 0x12
         // 0x13 runs the coil self-test. Reply, config report ID 2:
         //   [0x13][per coil x5: idle_raw u16, mA@50% u16, mA@100% u16,
-        //          FAULT u8, DIAG u8]
+        //          FAULT u8, DIAG u8, IC1 u8, reconfig count u8]
         #define CMD_SELF_TEST  0x13
         if (hid_get_config_received()) {
             hid_config_report_t cfg;
@@ -234,7 +234,7 @@ int main(void) {
             rep.command = CMD_SELF_TEST;
             const selftest_result_t *r = selftest_results();
             for (uint8_t i = 0; i < DRV_COUNT; i++) {
-                uint8_t *p = &rep.payload[i * 8];
+                uint8_t *p = &rep.payload[i * 10];
                 p[0] = (uint8_t)(r[i].idle_raw & 0xFF);
                 p[1] = (uint8_t)(r[i].idle_raw >> 8);
                 p[2] = (uint8_t)(r[i].ma & 0xFF);
@@ -243,6 +243,8 @@ int main(void) {
                 p[5] = (uint8_t)(r[i].ma_full >> 8);
                 p[6] = r[i].fault;
                 p[7] = r[i].diag;
+                p[8] = r[i].ic1;
+                p[9] = r[i].reconfig;
             }
             if (hid_send_config(&rep)) selftest_reply_pending = false;
         }
@@ -263,6 +265,19 @@ int main(void) {
 
         // Hold each coil at or under its current limit.
         current_limit_task();
+
+        // Every 200 ms make sure each driver is still in PH/EN with open-load
+        // detection on, and put it back if not (counted, shown in self-test).
+        {
+            static uint32_t cfg_check_ms = 0;
+            uint32_t nowc = to_ms_since_boot(get_absolute_time());
+            if (nowc - cfg_check_ms >= 200u) {
+                cfg_check_ms = nowc;
+                for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                    drv_ensure_config((drv_id_t)i, NULL);
+                }
+            }
+        }
 
         // Safety: stop the coils if the host goes quiet. A closed browser tab
         // should not leave them energised.

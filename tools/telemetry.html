@@ -235,7 +235,7 @@ function render(dv) {
     const lvlPct = dv.getUint16(6, true) / 5000 * 100;
     const dead = [0,1,2,3,4].some(i => ((dm>>i)&1) && coils[i] < 20);
     noCur = (dead && lvlPct >= 5) ? noCur + 1 : 0;
-    if (noCur >= 3) hits.push('No current, check coil wiring');
+    if (noCur >= 3) hits.push('No current reading');   // wiring faults show as Open load
     $('dbgst').textContent = hits.length ? hits.join(', ') : 'OK, no faults';
   }
 
@@ -352,10 +352,14 @@ function selftestReply(dv) {
   const fnames = ['','Overheat shutdown','Overcurrent','Charge pump low','Undervoltage','Temp warning'];
   const idle = [];
   for (let i = 0; i < 5; i++) {
-    const o = 1 + i * 8;
+    const o = 1 + i * 10;
     idle.push(dv.getUint16(o, true));
     const ma = dv.getUint16(o + 2, true), full = dv.getUint16(o + 4, true);
     const f = dv.getUint8(o + 6), d = dv.getUint8(o + 7);
+    const ic1 = dv.getUint8(o + 8), recfg = dv.getUint8(o + 9);
+    const modes = ['PH/EN', 'PWM', 'independent', 'off'];
+    const modeTxt = (ic1 & 3) === 0 ? '' : ', WRONG MODE: ' + modes[ic1 & 3];
+    const recfgTxt = recfg ? ', mode lost ' + recfg + 'x' : '';
     const amps = (ma / 1000).toFixed(2) + ' A / ' + (full / 1000).toFixed(2) + ' A';
     const other = fnames.filter((n, b) => n && ((f >> b) & 1));
     let v;
@@ -363,7 +367,7 @@ function selftestReply(dv) {
     else if (d & 0xC0)      v = amps + ', open: no current path';
     else if (full < 50)     v = amps + ', connected but reading low';
     else                    v = amps + ', OK';
-    $('st' + i).textContent = v;
+    $('st' + i).textContent = v + modeTxt + recfgTxt;
   }
   $('stnote').textContent = 'Amps at 50% / 100%. Zero reference (raw, all off): ' + idle.join(', ');
   $('runtest').textContent = 'Run test';

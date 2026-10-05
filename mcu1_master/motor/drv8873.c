@@ -141,3 +141,34 @@ drv_result_t drv_clear_faults(drv_id_t id) {
     return drv_write_reg(id, DRV_REG_IC3,
                          (uint8_t)(DRV_CLR_FLT | (DRV_LOCK_UNLOCK << DRV_LOCK_SHIFT)));
 }
+
+static uint8_t reconfig_cnt[DRV_COUNT] = {0};
+
+uint8_t drv_reconfig_count(drv_id_t id) {
+    return (id < DRV_COUNT) ? reconfig_cnt[id] : 0;
+}
+
+bool drv_ensure_config(drv_id_t id, uint8_t *ic1_seen) {
+    if (id >= DRV_COUNT || !(present & (1u << id))) return false;
+
+    uint8_t ic1 = 0, ic4 = 0;
+    if (drv_read_reg(id, DRV_REG_IC1, &ic1, NULL) != DRV_OK) return false;
+    if (ic1_seen) *ic1_seen = ic1;
+    bool mode_ok = (ic1 & 0x03u) == DRV_MODE_PH_EN;
+
+    bool ola_ok = true;
+    if (drv_read_reg(id, DRV_REG_IC4, &ic4, NULL) == DRV_OK) {
+        ola_ok = (ic4 & DRV_IC4_EN_OLA) != 0;
+    }
+    if (mode_ok && ola_ok) return false;
+
+    drv_write_reg(id, DRV_REG_IC3, (uint8_t)(DRV_LOCK_UNLOCK << DRV_LOCK_SHIFT));
+    if (!mode_ok) {
+        drv_write_reg(id, DRV_REG_IC1, (uint8_t)((ic1 & ~0x03u) | DRV_MODE_PH_EN));
+    }
+    if (!ola_ok) {
+        drv_write_reg(id, DRV_REG_IC4, (uint8_t)(ic4 | DRV_IC4_EN_OLA));
+    }
+    if (reconfig_cnt[id] < 255u) reconfig_cnt[id]++;
+    return true;
+}

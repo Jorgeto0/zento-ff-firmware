@@ -82,4 +82,11 @@ drv_result_t drv_write_reg(drv_id_t id, uint8_t addr, uint8_t value);
 drv_result_t drv_read_fault(drv_id_t id, uint8_t *fault, uint8_t *diag);
 drv_result_t drv_clear_faults(drv_id_t id);   // CLR_FLT, keeps IC3 unlocked
 
+// Read IC1/IC4 back and re-apply PH/EN mode and open-load detection if a
+// driver has lost them (the datasheet does not say whether registers survive
+// a VM dip or reset). Call regularly. ic1_seen gets IC1 as read, before any
+// fix. Returns true if the driver needed re-applying.
+bool     drv_ensure_config(drv_id_t id, uint8_t *ic1_seen);
+uint8_t  drv_reconfig_count(drv_id_t id);    // times re-applied since boot
+
 #endif // DRV8873_H
