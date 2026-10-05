@@ -6,9 +6,10 @@
 #define SETTLE_MS   60u      // all off before measuring the zero reference
 #define DRIVE_MS    250u     // per coil
 #define REST_MS     60u      // off between coils
-#define TEST_FORCE  16384    // 50% of full scale, gentle enough for every coil
+#define TEST_FORCE  16384    // 50% of full scale
+#define FULL_FORCE  32767    // 100%
 
-typedef enum { ST_IDLE, ST_SETTLE, ST_DRIVE, ST_REST } st_state_t;
+typedef enum { ST_IDLE, ST_SETTLE, ST_DRIVE, ST_DRIVE_FULL, ST_REST } st_state_t;
 
 static st_state_t        state = ST_IDLE;
 static uint8_t           coil  = 0;
@@ -21,6 +22,7 @@ void selftest_start(void) {
     coil_all_off();
     for (uint8_t i = 0; i < DRV_COUNT; i++) {
         res[i] = (selftest_result_t){0};
+        coil_set_scale_q16((drv_id_t)i, COIL_SCALE_ONE);   // no amp limit
     }
     coil  = 0;
     t0    = now_ms();
@@ -53,6 +55,14 @@ bool selftest_task(void) {
     case ST_DRIVE:
         if (el < DRIVE_MS) return false;
         res[coil].ma = current_coil_ma((drv_id_t)coil);
+        coil_set_force((drv_id_t)coil, FULL_FORCE);
+        t0    = now_ms();
+        state = ST_DRIVE_FULL;
+        return false;
+
+    case ST_DRIVE_FULL:
+        if (el < DRIVE_MS) return false;
+        res[coil].ma_full = current_coil_ma((drv_id_t)coil);
         drv_read_reg((drv_id_t)coil, DRV_REG_FAULT, &res[coil].fault, NULL);
         drv_read_reg((drv_id_t)coil, DRV_REG_DIAG,  &res[coil].diag,  NULL);
         coil_set_force((drv_id_t)coil, 0);

@@ -162,7 +162,8 @@ int main(void) {
         //   [0x12][5 x uint16 mA][saved: 1 = flash holds these values]
         #define CMD_GET_LIMITS 0x12
         // 0x13 runs the coil self-test. Reply, config report ID 2:
-        //   [0x13][per coil x5: idle_raw u16, mA u16, FAULT u8, DIAG u8]
+        //   [0x13][per coil x5: idle_raw u16, mA@50% u16, mA@100% u16,
+        //          FAULT u8, DIAG u8]
         #define CMD_SELF_TEST  0x13
         if (hid_get_config_received()) {
             hid_config_report_t cfg;
@@ -233,13 +234,15 @@ int main(void) {
             rep.command = CMD_SELF_TEST;
             const selftest_result_t *r = selftest_results();
             for (uint8_t i = 0; i < DRV_COUNT; i++) {
-                uint8_t *p = &rep.payload[i * 6];
+                uint8_t *p = &rep.payload[i * 8];
                 p[0] = (uint8_t)(r[i].idle_raw & 0xFF);
                 p[1] = (uint8_t)(r[i].idle_raw >> 8);
                 p[2] = (uint8_t)(r[i].ma & 0xFF);
                 p[3] = (uint8_t)(r[i].ma >> 8);
-                p[4] = r[i].fault;
-                p[5] = r[i].diag;
+                p[4] = (uint8_t)(r[i].ma_full & 0xFF);
+                p[5] = (uint8_t)(r[i].ma_full >> 8);
+                p[6] = r[i].fault;
+                p[7] = r[i].diag;
             }
             if (hid_send_config(&rep)) selftest_reply_pending = false;
         }

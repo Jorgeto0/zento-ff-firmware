@@ -4,8 +4,8 @@
 // =============================================================================
 // mcu1_master/motor/coil_selftest.h — one-click coil check
 //
-// Drives each coil in turn at 50% for 250 ms and records two independent
-// answers:
+// Drives each coil in turn at 50% then 100%, 250 ms each, and records two
+// independent answers:
 //   1. our current reading (IPROPI through the ADC)
 //   2. the driver's own active open-load check (DIAG OL1/OL2)
 // Plus the idle ADC reading with everything off, as a zero reference.
@@ -15,7 +15,8 @@
 //   OL clear, amps   -> all good
 //
 // Runs as a state machine from the main loop, so USB and the watchdog keep
-// running. ~2 s in total.
+// running. ~3 s in total. Saved amp limits are ignored during the test so
+// the 100% reading is a clean comparison against a bench measurement.
 // =============================================================================
 
 #include <stdbool.h>
@@ -25,6 +26,7 @@
 typedef struct {
     uint16_t idle_raw;   // ADC counts with every coil off
     uint16_t ma;         // current while driven at 50%
+    uint16_t ma_full;    // current while driven at 100%
     uint8_t  fault;      // FAULT register after driving
     uint8_t  diag;       // DIAG register after driving (OL1 bit 7, OL2 bit 6)
 } selftest_result_t;

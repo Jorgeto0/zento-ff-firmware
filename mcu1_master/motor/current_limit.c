@@ -1,6 +1,7 @@
 #include "current_limit.h"
 #include "coil_pwm.h"
 #include "current_sense.h"
+#include "coil_selftest.h"
 #include "pico/time.h"
 
 static uint16_t limit_ma[DRV_COUNT] = { 500, 500, 500, 500, 0 };
@@ -22,6 +23,7 @@ uint16_t current_limit_get_ma(drv_id_t id) {
 }
 
 void current_limit_task(void) {
+    if (selftest_running()) return;     // test measures without limits
     uint32_t now = time_us_32();
     if ((now - last_run_us) < CURRENT_LIMIT_PERIOD_US) return;
     last_run_us = now;
