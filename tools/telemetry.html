@@ -165,7 +165,7 @@
       <div class="row"><span class="label">Coil 4</span><span class="val" id="st3">—</span></div>
       <div class="row"><span class="label">Voice coil</span><span class="val" id="st4">—</span></div>
       <button class="ghost" id="runtest" style="margin-top:12px" disabled>Run test</button>
-      <div class="note" id="stnote">Drives each coil at 50% then 100% for a moment, about 3 seconds total. Shows amps at 50% / 100%.</div>
+      <div class="note" id="stnote">Drives each coil at 50%, 100% and -100% (reverse), about 5 seconds total. Shows amps at 50% / 100% / reverse.</div>
     </div>
   </div>
 
@@ -335,7 +335,8 @@ $('setlim').onclick = async () => {
   catch (e) { $('setlim').textContent = 'Failed, retry'; }
 };
 
-// Coil self-test (0x13). Reply per coil: idle raw, mA@50%, mA@100%, FAULT, DIAG.
+// Coil self-test (0x13). Reply per coil (12 bytes): idle raw, mA@50%, mA@100%,
+// mA@-100%, FAULT, DIAG, IC1, reconfig count.
 // DIAG bit 7 = OL1, bit 6 = OL2: the driver's own open-load check.
 $('runtest').onclick = async () => {
   if (!device) return;
@@ -352,24 +353,27 @@ function selftestReply(dv) {
   const fnames = ['','Overheat shutdown','Overcurrent','Charge pump low','Undervoltage','Temp warning'];
   const idle = [];
   for (let i = 0; i < 5; i++) {
-    const o = 1 + i * 10;
+    const o = 1 + i * 12;
     idle.push(dv.getUint16(o, true));
     const ma = dv.getUint16(o + 2, true), full = dv.getUint16(o + 4, true);
-    const f = dv.getUint8(o + 6), d = dv.getUint8(o + 7);
-    const ic1 = dv.getUint8(o + 8), recfg = dv.getUint8(o + 9);
+    const rev = dv.getUint16(o + 6, true);
+    const f = dv.getUint8(o + 8), d = dv.getUint8(o + 9);
+    const ic1 = dv.getUint8(o + 10), recfg = dv.getUint8(o + 11);
     const modes = ['PH/EN', 'PWM', 'independent', 'off'];
     const modeTxt = (ic1 & 3) === 0 ? '' : ', WRONG MODE: ' + modes[ic1 & 3];
     const recfgTxt = recfg ? ', mode lost ' + recfg + 'x' : '';
-    const amps = (ma / 1000).toFixed(2) + ' A / ' + (full / 1000).toFixed(2) + ' A';
+    const amps = (ma / 1000).toFixed(2) + ' / ' + (full / 1000).toFixed(2) +
+                 ' / ' + (rev / 1000).toFixed(2) + ' A';
     const other = fnames.filter((n, b) => n && ((f >> b) & 1));
     let v;
     if (other.length)       v = amps + ', ' + other.join(', ');
     else if (d & 0xC0)      v = amps + ', open: no current path';
     else if (full < 50)     v = amps + ', connected but reading low';
+    else if (rev < full / 4) v = amps + ', no current in reverse';
     else                    v = amps + ', OK';
     $('st' + i).textContent = v + modeTxt + recfgTxt;
   }
-  $('stnote').textContent = 'Amps at 50% / 100%. Zero reference (raw, all off): ' + idle.join(', ');
+  $('stnote').textContent = 'Amps at 50% / 100% / reverse. Zero reference (raw, all off): ' + idle.join(', ');
   $('runtest').textContent = 'Run test';
   $('runtest').disabled = false;
 }

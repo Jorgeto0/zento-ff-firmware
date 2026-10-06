@@ -9,7 +9,7 @@
 #define TEST_FORCE  16384    // 50% of full scale
 #define FULL_FORCE  32767    // 100%
 
-typedef enum { ST_IDLE, ST_SETTLE, ST_DRIVE, ST_DRIVE_FULL, ST_REST } st_state_t;
+typedef enum { ST_IDLE, ST_SETTLE, ST_DRIVE, ST_DRIVE_FULL, ST_GAP, ST_DRIVE_REV, ST_REST } st_state_t;
 
 static st_state_t        state = ST_IDLE;
 static uint8_t           coil  = 0;
@@ -66,11 +66,35 @@ bool selftest_task(void) {
         drv_read_reg((drv_id_t)coil, DRV_REG_FAULT, &res[coil].fault, NULL);
         drv_read_reg((drv_id_t)coil, DRV_REG_DIAG,  &res[coil].diag,  NULL);
         drv_read_reg((drv_id_t)coil, DRV_REG_IC1,   &res[coil].ic1,   NULL);
+        // Brief off before reversing, so a full-current coil is not flipped
+        // straight from +100% to -100%.
+        coil_set_force((drv_id_t)coil, 0);
+        t0    = now_ms();
+        state = ST_GAP;
+        return false;
+
+    case ST_GAP:
+        if (el < REST_MS) return false;
+        drv_clear_faults((drv_id_t)coil);      // fresh verdict for reverse
+        coil_set_force((drv_id_t)coil, (int16_t)(-FULL_FORCE));
+        t0    = now_ms();
+        state = ST_DRIVE_REV;
+        return false;
+
+    case ST_DRIVE_REV: {
+        if (el < DRIVE_MS) return false;
+        res[coil].ma_rev = current_coil_ma((drv_id_t)coil);
+        uint8_t f = 0, d = 0;
+        drv_read_reg((drv_id_t)coil, DRV_REG_FAULT, &f, NULL);
+        drv_read_reg((drv_id_t)coil, DRV_REG_DIAG,  &d, NULL);
+        res[coil].fault |= f;
+        res[coil].diag  |= d;
         res[coil].reconfig = drv_reconfig_count((drv_id_t)coil);
         coil_set_force((drv_id_t)coil, 0);
         t0    = now_ms();
         state = ST_REST;
         return false;
+    }
 
     case ST_REST:
         if (el < REST_MS) return false;
