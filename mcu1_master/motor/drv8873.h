@@ -18,10 +18,10 @@
 // driver's SDI input so it is the MCU's MOSI, M_SPI_DO_COIL comes from its
 // SDO output so it is the MCU's MISO.
 //
-// IMPORTANT: MODE in IC1[1:0] defaults to 01b (PWM mode) but this board wires
-// M_PWM_COILx to EN/IN1 and M_DIR_COILx to PH/IN2, which is PH/EN mode = 00b.
-// It must be written at init or the pins will not behave as the schematic
-// intends. See Table 2 and Table 4.
+// MODE in IC1[1:0] defaults to 01b (PWM, IN/IN). Writing PH/EN (00b) did not
+// take effect on the board (2026-10-06: idle current with PH high, no
+// reverse), so the firmware uses the default PWM mode and coil_pwm.c drives
+// M_PWM_COILx as IN1 and M_DIR_COILx as IN2 per Table 5.
 // =============================================================================
 
 #include <stdint.h>
@@ -36,8 +36,8 @@
 #define DRV_REG_IC4         0x05
 
 // IC1 fields
-#define DRV_MODE_PH_EN      0x0     // bits 1:0 — what this board is wired for
-#define DRV_MODE_PWM        0x1     // power-up default
+#define DRV_MODE_PH_EN      0x0     // bits 1:0
+#define DRV_MODE_PWM        0x1     // power-up default, IN/IN — used (coil_pwm.c)
 #define DRV_SR_SHIFT        2
 #define DRV_SPI_IN          (1u<<5)
 #define DRV_TOFF_SHIFT      6

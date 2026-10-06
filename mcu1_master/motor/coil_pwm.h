@@ -4,11 +4,11 @@
 // =============================================================================
 // mcu1_master/motor/coil_pwm.h — PWM force output for the five left coils
 //
-// DRV8873 in PH/EN mode (Table 4): EN/IN1 takes the PWM, PH/IN2 sets
-// direction. So magnitude drives duty cycle and sign drives the DIR pin.
+// DRV8873 in its default PWM (IN/IN) mode, Table 5: both control pins are
+// hardware PWM; see coil_pwm.c for the forward/reverse/coast pattern.
 //
 // Slice map checked against pico-sdk PWM_GPIO_SLICE_NUM for RP2350:
-//   GPIO28 slice 6A, 30 slice 7A, 32 slice 8A, 34 slice 9A, 36 slice 10A.
+//   GPIO28/29 slice 6A/B, 30/31 7A/B, 32/33 8A/B, 34/35 9A/B, 36/37 10A/B.
 //   All distinct, so the five coils are independent.
 //
 // 25 kHz: inside the 20-32 kHz target and above audible range.
@@ -30,7 +30,7 @@
 void coil_pwm_init(void);
 
 // force: -32768 to +32767. Sign sets direction, magnitude sets duty.
-// Zero holds EN low: both outputs high, high-side brake (Table 4).
+// Zero: both inputs low, outputs Hi-Z (coast), no current (Table 5).
 void coil_set_force(drv_id_t id, int16_t force);
 
 // Stop every coil. Called on fault or loss of host contact.

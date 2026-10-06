@@ -113,7 +113,8 @@ drv_result_t drv_init_all(void) {
         drv_write_reg((drv_id_t)i, DRV_REG_IC3,
                       (uint8_t)(DRV_LOCK_UNLOCK << DRV_LOCK_SHIFT));
 
-        uint8_t v = (uint8_t)((ic1 & ~0x03u) | DRV_MODE_PH_EN);
+        // PWM (IN/IN) mode, the power-up default, which coil_pwm.c drives.
+        uint8_t v = (uint8_t)((ic1 & ~0x03u) | DRV_MODE_PWM);
         drv_write_reg((drv_id_t)i, DRV_REG_IC1, v);
 
         // Active open-load detection on. Read-modify-write keeps the
@@ -154,7 +155,11 @@ bool drv_ensure_config(drv_id_t id, uint8_t *ic1_seen) {
     uint8_t ic1 = 0, ic4 = 0;
     if (drv_read_reg(id, DRV_REG_IC1, &ic1, NULL) != DRV_OK) return false;
     if (ic1_seen) *ic1_seen = ic1;
-    bool mode_ok = (ic1 & 0x03u) == DRV_MODE_PH_EN;
+    // A read of exactly 0x00 is not a real IC1 value (its default has
+    // non-zero bits); on this board register reads have so far returned 0,
+    // so treat it as unknown and leave the driver alone.
+    if (ic1 == 0x00u) return false;
+    bool mode_ok = (ic1 & 0x03u) == DRV_MODE_PWM;
 
     bool ola_ok = true;
     if (drv_read_reg(id, DRV_REG_IC4, &ic4, NULL) == DRV_OK) {
@@ -164,7 +169,7 @@ bool drv_ensure_config(drv_id_t id, uint8_t *ic1_seen) {
 
     drv_write_reg(id, DRV_REG_IC3, (uint8_t)(DRV_LOCK_UNLOCK << DRV_LOCK_SHIFT));
     if (!mode_ok) {
-        drv_write_reg(id, DRV_REG_IC1, (uint8_t)((ic1 & ~0x03u) | DRV_MODE_PH_EN));
+        drv_write_reg(id, DRV_REG_IC1, (uint8_t)((ic1 & ~0x03u) | DRV_MODE_PWM));
     }
     if (!ola_ok) {
         drv_write_reg(id, DRV_REG_IC4, (uint8_t)(ic4 | DRV_IC4_EN_OLA));

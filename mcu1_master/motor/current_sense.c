@@ -40,10 +40,9 @@ float current_amps(drv_id_t id) {
 
 uint16_t current_coil_ma(drv_id_t id) {
     if (id >= DRV_COUNT) return 0;
-    // No duty correction: in PH/EN mode the PWM off-time is high-side
-    // recirculation (Table 4: EN=0 -> OUT1=H, OUT2=H), so IPROPI keeps
-    // mirroring the coil current through the off-time. The averaged
-    // reading is already the coil current.
+    // No duty correction: coil_pwm.c brakes on the high side (IN1=IN2=1,
+    // OUT1=OUT2=H) between drive pulses, so IPROPI keeps mirroring the coil
+    // current the whole period. The averaged reading is the coil current.
     float ma = current_amps(id) * 1000.0f;
     if (ma > 65535.0f) ma = 65535.0f;
     return (uint16_t)(ma + 0.5f);

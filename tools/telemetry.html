@@ -360,7 +360,9 @@ function selftestReply(dv) {
     const f = dv.getUint8(o + 8), d = dv.getUint8(o + 9);
     const ic1 = dv.getUint8(o + 10), recfg = dv.getUint8(o + 11);
     const modes = ['PH/EN', 'PWM', 'independent', 'off'];
-    const modeTxt = (ic1 & 3) === 0 ? '' : ', WRONG MODE: ' + modes[ic1 & 3];
+    // Expected mode is PWM (1). A read of 0x00 means the register read is
+    // not trustworthy, so it is not reported as a wrong mode.
+    const modeTxt = (ic1 === 0 || (ic1 & 3) === 1) ? '' : ', WRONG MODE: ' + modes[ic1 & 3];
     const recfgTxt = recfg ? ', mode lost ' + recfg + 'x' : '';
     const amps = (ma / 1000).toFixed(2) + ' / ' + (full / 1000).toFixed(2) +
                  ' / ' + (rev / 1000).toFixed(2) + ' A';
