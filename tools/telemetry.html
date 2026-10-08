@@ -286,9 +286,6 @@ $('connect').onclick = async () => {
   }
 };
 
-
-}
-
 // Amps per coil. 0x11 sets and saves, 0x12 asks. The board answers both
 // with config report 2: [0x12][5 x uint16 mA][saved flag].
 async function askSettings() {
