@@ -54,6 +54,8 @@
   .unsupported { background:rgba(255,176,32,.1); border:1px solid var(--warn);
     color:var(--warn); padding:12px 14px; border-radius:10px; margin-bottom:20px; font-size:13.5px; }
   .lim { width:72px; background:transparent; color:inherit; border:1px solid currentColor; border-radius:6px; padding:3px 6px; font:inherit; text-align:right; opacity:.85; }
+  .tgl.on { background:#22c55e; color:#04120a; border-color:#22c55e; }
+  .tgl, .dir { min-width:72px; }
 </style>
 </head>
 <body>
@@ -124,19 +126,14 @@
     </div>
 
     <div class="card">
-      <h2>Force test</h2>
-      <div class="force">
-        <select id="coil">
-          <option value="0">Coil 1</option><option value="1">Coil 2</option>
-          <option value="2">Coil 3</option><option value="3">Coil 4</option>
-          <option value="4" selected>Voice coil</option>
-        </select>
-        <input type="range" id="level" min="-100" max="100" value="50" style="flex:1;min-width:110px">
-        <span class="val" id="lvlout">50%</span>
-      </div>
-      <div class="bar"><i id="lvlbar"></i></div>
-      <button class="ghost" id="send" style="margin-top:12px" disabled>Hold to drive</button>
-      <div class="note">Drives while held. Firmware cuts out after half a second of silence.</div>
+      <h2>Coil control</h2>
+      <div class="row"><span class="label">Coil 1 (right)</span><span><button class="ghost tgl" data-i="0" disabled>Off</button> <button class="ghost dir" data-i="0" disabled>Pull</button></span></div>
+      <div class="row"><span class="label">Coil 2 (down)</span><span><button class="ghost tgl" data-i="1" disabled>Off</button> <button class="ghost dir" data-i="1" disabled>Pull</button></span></div>
+      <div class="row"><span class="label">Coil 3 (left)</span><span><button class="ghost tgl" data-i="2" disabled>Off</button> <button class="ghost dir" data-i="2" disabled>Pull</button></span></div>
+      <div class="row"><span class="label">Coil 4 (up)</span><span><button class="ghost tgl" data-i="3" disabled>Off</button> <button class="ghost dir" data-i="3" disabled>Pull</button></span></div>
+      <div class="row"><span class="label">Voice coil</span><span><button class="ghost tgl" data-i="4" disabled>Off</button> <button class="ghost dir" data-i="4" disabled>Forward</button></span></div>
+      <button class="ghost" id="alloff" style="margin-top:12px" disabled>All off</button>
+      <div class="note">Full power. Turn on any coils together; Pull/Push flips direction. Coils stop within half a second if this page closes.</div>
     </div>
 
     <div class="card">
@@ -275,7 +272,8 @@ $('connect').onclick = async () => {
     $('status').textContent = 'Connected — ' + device.productName;
     $('status').className = 'status live';
     $('connect').textContent = 'Reconnect';
-    $('send').disabled = false;
+    document.querySelectorAll('.tgl,.dir').forEach(b => b.disabled = false);
+    $('alloff').disabled = false;
     $('setlim').disabled = false;
     $('runtest').disabled = false;
     device.addEventListener('inputreport', e => {
@@ -288,19 +286,7 @@ $('connect').onclick = async () => {
   }
 };
 
-$('level').oninput = e => {
-  const v = +e.target.value;
-  $('lvlout').textContent = v + '%';
-  $('lvlbar').style.width = Math.abs(v) + '%';
-};
 
-async function drive(pct) {
-  if (!device) return;
-  const buf = new Uint8Array(11);            // command byte + 5 x int16
-  buf[0] = 0x10;
-  const dv = new DataView(buf.buffer);
-  dv.setInt16(1 + (+$('coil').value) * 2, Math.round(pct / 100 * 32767), true);
-  try { await device.sendReport(2, buf); } catch (e) {}
 }
 
 // Amps per coil. 0x11 sets and saves, 0x12 asks. The board answers both
@@ -380,16 +366,45 @@ function selftestReply(dv) {
   $('runtest').disabled = false;
 }
 
-const startDrive = () => {
-  if (sendTimer) return;
-  const tick = () => drive(+$('level').value);
-  tick();
-  sendTimer = setInterval(tick, 100);        // stay ahead of the 500ms cutoff
-};
-const stopDrive = () => { clearInterval(sendTimer); sendTimer = null; drive(0); };
-
-['mousedown','touchstart'].forEach(e => $('send').addEventListener(e, ev => { ev.preventDefault(); startDrive(); }));
-['mouseup','mouseleave','touchend','touchcancel'].forEach(e => $('send').addEventListener(e, stopDrive));
+// Coil control: each coil on/off at full power, with its own direction.
+// Positive = pull for the stick coils (coil 3 is flipped in firmware).
+const coilOn  = [false, false, false, false, false];
+const coilNeg = [false, false, false, false, false];
+const DIR_LBL = [['Pull','Push'],['Pull','Push'],['Pull','Push'],['Pull','Push'],['Forward','Reverse']];
+let ctlTimer = null;
+async function sendForces() {
+  if (!device) return;
+  const buf = new Uint8Array(11);            // 0x10 + 5 x int16
+  buf[0] = 0x10;
+  const v = new DataView(buf.buffer);
+  for (let i = 0; i < 5; i++) {
+    if (coilOn[i]) v.setInt16(1 + i * 2, coilNeg[i] ? -32767 : 32767, true);
+  }
+  try { await device.sendReport(2, buf); } catch (e) {}
+}
+function refreshCtl() {
+  document.querySelectorAll('.tgl').forEach(b => {
+    const i = +b.dataset.i;
+    b.textContent = coilOn[i] ? 'On' : 'Off';
+    b.classList.toggle('on', coilOn[i]);
+  });
+  document.querySelectorAll('.dir').forEach(b => {
+    const i = +b.dataset.i;
+    b.textContent = DIR_LBL[i][coilNeg[i] ? 1 : 0];
+  });
+  const any = coilOn.some(x => x);
+  if (any) {
+    sendForces();
+    if (!ctlTimer) ctlTimer = setInterval(sendForces, 100);   // ahead of the 500ms cutoff
+  } else if (ctlTimer) {
+    clearInterval(ctlTimer); ctlTimer = null;
+    sendForces();                                             // all zero
+  }
+}
+document.querySelectorAll('.tgl').forEach(b => b.onclick = () => { const i = +b.dataset.i; coilOn[i] = !coilOn[i]; refreshCtl(); });
+document.querySelectorAll('.dir').forEach(b => b.onclick = () => { const i = +b.dataset.i; coilNeg[i] = !coilNeg[i]; refreshCtl(); });
+$('alloff').onclick = () => { coilOn.fill(false); refreshCtl(); };
+window.addEventListener('beforeunload', () => { coilOn.fill(false); sendForces(); });
 </script>
 </body>
 </html>
