@@ -121,7 +121,6 @@ int main(void) {
     // All work done via state machines and flags — no blocking calls
     // -------------------------------------------------------------------------
     uint32_t last_blink_ms = to_ms_since_boot(get_absolute_time());
-    uint32_t bus_test_ms    = to_ms_since_boot(get_absolute_time());
     uint32_t tmag_ms        = to_ms_since_boot(get_absolute_time());
     hid_primary_report_t hid_report = {0};
     uint32_t last_force_ms = 0;      // 0 means no command yet
@@ -133,12 +132,23 @@ int main(void) {
     uint16_t cfg_cmd_seen = 0;      // first byte of the last one
     int16_t  vc_force_dbg = 0;      // force value parsed for VC1
     uint16_t post_drive_diag = 0;   // FAULT|DIAG read right after driving
-    uint16_t bus_ping_count = 0;
     bool     bus_alive      = false;   // drives the LED rate
     bool     bus_ever_alive = false;   // latched — never goes back down
     bool     led_on         = false;
     bool     limits_reply_pending = false;
     bool     selftest_reply_pending = false;
+
+    // Right side, reached through MCU2 over the PIO link
+    int16_t  right_force[DRV_COUNT] = {0};   // forces for the right coils
+    uint32_t right_force_ms = 0;             // last 0x14 from the host, 0 = none
+    uint16_t right_ma[DRV_COUNT] = {0};      // right coil currents (mA), from MCU2
+    uint8_t  right_status = 0;               // MCU2 guard bits (half power), bit per coil
+    uint16_t right_rx_ok = 0, right_rx_err = 0;    // MCU2's own packet counters
+    uint16_t link_ok = 0, link_timeout = 0, link_crc = 0, link_bad = 0;
+    uint32_t link_last_ok_ms = 0;
+    uint32_t link_ms = 0;
+    bool     right_reply_pending = false;
+    bool     dump_reply_pending  = false;
     bool     settings_saved = settings_loaded;   // flash matches live values
 
     while (1) {
@@ -166,6 +176,16 @@ int main(void) {
         //          mA@-100% u16, FAULT u8, DIAG u8, IC1 u8, reconfig u8]
         //   12 bytes x 5 = 60, fits the 62-byte payload.
         #define CMD_SELF_TEST  0x13
+        // 0x14: five int16 forces for the RIGHT coils (same layout as 0x10),
+        //       relayed to MCU2 over the PIO link.
+        // 0x15: request right-side status. Reply, config report ID 2:
+        //   [0x15][5 x mA u16][guard bits u8][MCU2 rx ok u16][MCU2 rx err u16]
+        //   [link ok u16][timeouts u16][crc errs u16][bad pkts u16][fresh u8]
+        // 0x16: request a raw register dump of the five left DRV8873s.
+        //   Reply: [0x16][driver x5: regs 0x00..0x05 as raw 16-bit SPI replies]
+        #define CMD_SET_FORCES_R 0x14
+        #define CMD_GET_RIGHT    0x15
+        #define CMD_DRV_DUMP     0x16
         if (hid_get_config_received()) {
             hid_config_report_t cfg;
             hid_get_last_config(&cfg);
@@ -224,7 +244,57 @@ int main(void) {
                     last_force_ms = 0;          // keep the timeout out of it
                     selftest_start();
                 }
+            } else if (cfg.command == CMD_SET_FORCES_R) {
+                for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                    right_force[i] = (int16_t)((uint16_t)cfg.payload[i*2] |
+                                               ((uint16_t)cfg.payload[i*2+1] << 8));
+                }
+                right_force_ms = to_ms_since_boot(get_absolute_time());
+            } else if (cfg.command == CMD_GET_RIGHT) {
+                right_reply_pending = true;
+            } else if (cfg.command == CMD_DRV_DUMP) {
+                dump_reply_pending = true;
             }
+        }
+
+        // Right-side status reply
+        if (right_reply_pending) {
+            hid_config_report_t rep;
+            memset(&rep, 0, sizeof(rep));
+            rep.command = CMD_GET_RIGHT;
+            uint8_t *q = rep.payload;
+            for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                *q++ = (uint8_t)(right_ma[i] & 0xFF); *q++ = (uint8_t)(right_ma[i] >> 8);
+            }
+            *q++ = right_status;
+            const uint16_t w[6] = { right_rx_ok, right_rx_err, link_ok,
+                                    link_timeout, link_crc, link_bad };
+            for (uint8_t i = 0; i < 6; i++) {
+                *q++ = (uint8_t)(w[i] & 0xFF); *q++ = (uint8_t)(w[i] >> 8);
+            }
+            uint32_t nowr = to_ms_since_boot(get_absolute_time());
+            *q++ = (link_last_ok_ms != 0 && (nowr - link_last_ok_ms) < 500u) ? 1u : 0u;
+            if (hid_send_config(&rep)) right_reply_pending = false;
+        }
+
+        // Raw DRV8873 register dump (left side), to see whether SPI reads
+        // and writes work. Datasheet defaults: IC1 0x51, IC2 0x0C, IC3 0x40,
+        // IC4 0x08 (0x18 once our open-load write has landed).
+        if (dump_reply_pending && !right_reply_pending) {
+            extern uint16_t drv_last_rx[DRV_COUNT];
+            hid_config_report_t rep;
+            memset(&rep, 0, sizeof(rep));
+            rep.command = CMD_DRV_DUMP;
+            uint8_t *q = rep.payload;
+            for (uint8_t d = 0; d < DRV_COUNT; d++) {
+                for (uint8_t reg = 0; reg <= 5; reg++) {
+                    drv_last_rx[d] = 0;
+                    drv_read_reg((drv_id_t)d, reg, NULL, NULL);
+                    uint16_t raw = drv_last_rx[d];
+                    *q++ = (uint8_t)(raw & 0xFF); *q++ = (uint8_t)(raw >> 8);
+                }
+            }
+            if (hid_send_config(&rep)) dump_reply_pending = false;
         }
 
         // Coil self-test runs alongside everything else; reply when done.
@@ -292,35 +362,52 @@ int main(void) {
             dbg_max_level  = 0;
         }
 
-        // PIO bus test — ping the slave every 100ms.
-        // Result drives the LED: fast strobe = link up, slow = link down.
+        // Right side: exchange one packet with MCU2 every 10 ms.
+        // Out: the five right-coil forces. Back: right currents, guard bits
+        // and MCU2's packet counters. Every result is counted so the
+        // dashboard shows whether the link really delivers intact packets.
+        // Every 10 ms while the right board answers; every 100 ms while it
+        // is silent (unplugged), so a missing board costs little loop time.
+        uint32_t link_period = (link_last_ok_ms != 0 &&
+            (to_ms_since_boot(get_absolute_time()) - link_last_ok_ms) < 500u) ? 10u : 100u;
         if (pio_master_is_ready() &&
-            (to_ms_since_boot(get_absolute_time()) - bus_test_ms) >= 100) {
-            bus_test_ms = to_ms_since_boot(get_absolute_time());
+            (to_ms_since_boot(get_absolute_time()) - link_ms) >= link_period) {
+            link_ms = to_ms_since_boot(get_absolute_time());
+
+            // Host went quiet on the right side -> command zero
+            if (right_force_ms != 0 && (link_ms - right_force_ms) > 500u) {
+                for (uint8_t i = 0; i < DRV_COUNT; i++) right_force[i] = 0;
+                right_force_ms = 0;
+            }
 
             proto_m2s_t out = {0};
-            out.coil_target[0] = (int16_t)bus_ping_count++;
+            for (uint8_t i = 0; i < DRV_COUNT; i++) out.coil_target[i] = right_force[i];
 
-            // Try a few times — one dropped packet should not read as dead.
-            for (uint8_t attempt = 0; attempt < 5 && !bus_alive; attempt++) {
-                if (pio_master_send(&out) != PIO_BUS_OK) {
-                    continue;
-                }
+            if (pio_master_send(&out) == PIO_BUS_OK) {
                 proto_s2m_t in;
-                pio_bus_result_t r = pio_master_receive(&in, 20000);
-
-                // "Communicating" means bytes came back at all. A CRC or
-                // packet-type mismatch still proves the wire is working,
-                // which is the question this test is asking.
-                if (r != PIO_BUS_ERR_TIMEOUT) {
+                pio_bus_result_t r = pio_master_receive(&in, 3000);
+                if (r == PIO_BUS_OK) {
+                    link_ok++;
+                    link_last_ok_ms = to_ms_since_boot(get_absolute_time());
+                    for (uint8_t i = 0; i < DRV_COUNT; i++) right_ma[i] = in.coil_current[i];
+                    right_status = in.status;
+                    right_rx_ok  = (uint16_t)(in.reserved[0] | (in.reserved[1] << 8));
+                    right_rx_err = (uint16_t)(in.reserved[2] | (in.reserved[3] << 8));
                     bus_alive = true;
                     bus_ever_alive = true;
-                    log_value("BUS bytes received, result", (int32_t)r);
+                } else if (r == PIO_BUS_ERR_TIMEOUT) {
+                    link_timeout++;
+                } else if (r == PIO_BUS_ERR_CRC) {
+                    link_crc++;
+                } else {
+                    link_bad++;
                 }
             }
-            if (!bus_alive) {
-                log_info("BUS silent — no bytes from slave");
+            if (link_last_ok_ms == 0 ||
+                (to_ms_since_boot(get_absolute_time()) - link_last_ok_ms) > 500u) {
+                bus_alive = false;
             }
+            (void)bus_alive; (void)bus_ever_alive;   // kept for future status use
         }
 
         // Sensor read at 50Hz, logged so the values can be checked

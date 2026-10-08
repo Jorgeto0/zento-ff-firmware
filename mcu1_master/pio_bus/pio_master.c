@@ -60,7 +60,9 @@ static void wait_tx_drained(void) {
     while (!pio_sm_is_tx_fifo_empty(pio_instance, sm_tx)) {
         tight_loop_contents();
     }
-    busy_wait_us(20);
+    // Let the last byte finish shifting and give the slave time to read the
+    // packet, check it and load its first reply bytes before we clock.
+    busy_wait_us(150);
 }
 
 pio_bus_result_t pio_master_init(void) {
@@ -182,7 +184,6 @@ pio_bus_result_t pio_master_receive(proto_s2m_t *packet, uint32_t timeout_us) {
         // Wait for byte in RX FIFO with timeout
         while (pio_sm_is_rx_fifo_empty(pio_instance, sm_rx)) {
             if ((time_us_32() - start) > timeout_us) {
-                log_error("PIO master RX timeout");
                 return PIO_BUS_ERR_TIMEOUT;
             }
         }
@@ -194,19 +195,16 @@ pio_bus_result_t pio_master_receive(proto_s2m_t *packet, uint32_t timeout_us) {
 
     // Validate start byte
     if (packet->start_byte != PROTO_START_BYTE) {
-        log_error("PIO master RX bad start byte");
         return PIO_BUS_ERR_BAD_PACKET;
     }
 
     // Validate packet type
     if (packet->packet_type != PROTO_TYPE_S2M) {
-        log_error("PIO master RX wrong packet type");
         return PIO_BUS_ERR_BAD_PACKET;
     }
 
     // Validate CRC
     if (!crc8_verify((const uint8_t *)packet + 1, sizeof(proto_s2m_t) - 1)) {
-        log_error("PIO master RX CRC fail");
         return PIO_BUS_ERR_CRC;
     }
 

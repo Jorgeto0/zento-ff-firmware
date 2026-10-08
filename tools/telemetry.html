@@ -126,7 +126,7 @@
     </div>
 
     <div class="card">
-      <h2>Coil control</h2>
+      <h2>Left coil control</h2>
       <div class="row"><span class="label">Coil 1 (right)</span><span><button class="ghost tgl" data-i="0" disabled>Off</button> <button class="ghost dir" data-i="0" disabled>Pull</button></span></div>
       <div class="row"><span class="label">Coil 2 (down)</span><span><button class="ghost tgl" data-i="1" disabled>Off</button> <button class="ghost dir" data-i="1" disabled>Pull</button></span></div>
       <div class="row"><span class="label">Coil 3 (left)</span><span><button class="ghost tgl" data-i="2" disabled>Off</button> <button class="ghost dir" data-i="2" disabled>Pull</button></span></div>
@@ -163,6 +163,35 @@
       <div class="row"><span class="label">Voice coil</span><span class="val" id="st4">—</span></div>
       <button class="ghost" id="runtest" style="margin-top:12px" disabled>Run test</button>
       <div class="note" id="stnote">Drives each coil at 50%, 100% and -100% (reverse), about 5 seconds total. Shows amps at 50% / 100% / reverse.</div>
+    </div>
+
+    <div class="card">
+      <h2>Right coil control</h2>
+      <div class="row"><span class="label">Coil 1</span><span><button class="ghost tglr" data-i="0" disabled>Off</button> <button class="ghost dirr" data-i="0" disabled>Pull</button></span></div>
+      <div class="row"><span class="label">Coil 2</span><span><button class="ghost tglr" data-i="1" disabled>Off</button> <button class="ghost dirr" data-i="1" disabled>Pull</button></span></div>
+      <div class="row"><span class="label">Coil 3</span><span><button class="ghost tglr" data-i="2" disabled>Off</button> <button class="ghost dirr" data-i="2" disabled>Pull</button></span></div>
+      <div class="row"><span class="label">Coil 4</span><span><button class="ghost tglr" data-i="3" disabled>Off</button> <button class="ghost dirr" data-i="3" disabled>Pull</button></span></div>
+      <div class="row"><span class="label">Voice coil</span><span><button class="ghost tglr" data-i="4" disabled>Off</button> <button class="ghost dirr" data-i="4" disabled>Forward</button></span></div>
+      <button class="ghost" id="alloffr" style="margin-top:12px" disabled>All off</button>
+      <div class="note">Full power, sent through the left board. Pull/Push may be reversed on this side until confirmed. A stick coil above 0.75 A drops to half power automatically.</div>
+    </div>
+
+    <div class="card">
+      <h2>Right side</h2>
+      <div class="row"><span class="label">Link</span><span class="val" id="rlink">—</span></div>
+      <div class="row"><span class="label">Coil 1</span><span class="val" id="rc0">—</span></div>
+      <div class="row"><span class="label">Coil 2</span><span class="val" id="rc1">—</span></div>
+      <div class="row"><span class="label">Coil 3</span><span class="val" id="rc2">—</span></div>
+      <div class="row"><span class="label">Coil 4</span><span class="val" id="rc3">—</span></div>
+      <div class="row"><span class="label">Voice coil</span><span class="val" id="rc4">—</span></div>
+      <div class="note" id="rnote">Packets: —</div>
+    </div>
+
+    <div class="card">
+      <h2>Driver registers (left)</h2>
+      <pre id="dump" style="font-size:11px;white-space:pre-wrap;margin:0">—</pre>
+      <button class="ghost" id="readregs" style="margin-top:12px" disabled>Read registers</button>
+      <div class="note" id="dumpnote">Reads every DRV8873 register, for diagnosing the driver SPI.</div>
     </div>
   </div>
 
@@ -274,11 +303,15 @@ $('connect').onclick = async () => {
     $('connect').textContent = 'Reconnect';
     document.querySelectorAll('.tgl,.dir').forEach(b => b.disabled = false);
     $('alloff').disabled = false;
+    document.querySelectorAll('.tglr,.dirr').forEach(b => b.disabled = false);
+    $('alloffr').disabled = false;
+    $('readregs').disabled = false;
+    if (!rightPoll) rightPoll = setInterval(askRight, 250);
     $('setlim').disabled = false;
     $('runtest').disabled = false;
     device.addEventListener('inputreport', e => {
       if (e.reportId === 1) render(e.data);
-      if (e.reportId === 2) { settingsReply(e.data); selftestReply(e.data); }
+      if (e.reportId === 2) { settingsReply(e.data); selftestReply(e.data); rightReply(e.data); dumpReply(e.data); }
     });
     askSettings();
   } catch (err) {
@@ -402,6 +435,101 @@ document.querySelectorAll('.tgl').forEach(b => b.onclick = () => { const i = +b.
 document.querySelectorAll('.dir').forEach(b => b.onclick = () => { const i = +b.dataset.i; coilNeg[i] = !coilNeg[i]; refreshCtl(); });
 $('alloff').onclick = () => { coilOn.fill(false); refreshCtl(); };
 window.addEventListener('beforeunload', () => { coilOn.fill(false); sendForces(); });
+
+// ---- Right side (0x14 forces, 0x15 status) ----
+const coilOnR  = [false, false, false, false, false];
+const coilNegR = [false, false, false, false, false];
+let ctlTimerR = null, rightPoll = null;
+async function sendForcesR() {
+  if (!device) return;
+  const buf = new Uint8Array(11);
+  buf[0] = 0x14;
+  const v = new DataView(buf.buffer);
+  for (let i = 0; i < 5; i++) {
+    if (coilOnR[i]) v.setInt16(1 + i * 2, coilNegR[i] ? -32767 : 32767, true);
+  }
+  try { await device.sendReport(2, buf); } catch (e) {}
+}
+function refreshCtlR() {
+  document.querySelectorAll('.tglr').forEach(b => {
+    const i = +b.dataset.i;
+    b.textContent = coilOnR[i] ? 'On' : 'Off';
+    b.classList.toggle('on', coilOnR[i]);
+  });
+  document.querySelectorAll('.dirr').forEach(b => {
+    const i = +b.dataset.i;
+    b.textContent = DIR_LBL[i][coilNegR[i] ? 1 : 0];
+  });
+  const any = coilOnR.some(x => x);
+  if (any) {
+    sendForcesR();
+    if (!ctlTimerR) ctlTimerR = setInterval(sendForcesR, 100);
+  } else if (ctlTimerR) {
+    clearInterval(ctlTimerR); ctlTimerR = null;
+    sendForcesR();
+  }
+}
+document.querySelectorAll('.tglr').forEach(b => b.onclick = () => { const i = +b.dataset.i; coilOnR[i] = !coilOnR[i]; refreshCtlR(); });
+document.querySelectorAll('.dirr').forEach(b => b.onclick = () => { const i = +b.dataset.i; coilNegR[i] = !coilNegR[i]; refreshCtlR(); });
+$('alloffr').onclick = () => { coilOnR.fill(false); refreshCtlR(); };
+window.addEventListener('beforeunload', () => { coilOnR.fill(false); sendForcesR(); });
+
+async function askRight() {
+  if (!device) return;
+  const buf = new Uint8Array(11);
+  buf[0] = 0x15;
+  try { await device.sendReport(2, buf); } catch (e) {}
+}
+function rightReply(dv) {
+  if (dv.getUint8(0) !== 0x15) return;
+  const guard = dv.getUint8(11);
+  for (let i = 0; i < 5; i++) {
+    const ma = dv.getUint16(1 + i * 2, true);
+    $('rc' + i).textContent = (ma / 1000).toFixed(2) + ' A' + (((guard >> i) & 1) ? ', half power (over 0.75 A)' : '');
+  }
+  const w = k => dv.getUint16(12 + k * 2, true);
+  const s2ok = w(0), s2err = w(1), ok = w(2), to = w(3), crc = w(4), bad = w(5);
+  const fresh = dv.getUint8(24) === 1;
+  $('rlink').textContent = fresh ? 'Connected' : 'No reply from right board';
+  $('rlink').style.color = fresh ? '' : '#ef4444';
+  $('rnote').textContent = 'Packets OK ' + ok + ', timeouts ' + to + ', CRC errors ' + crc +
+    ', bad ' + bad + ' | right board received OK ' + s2ok + ', errors ' + s2err;
+}
+
+// ---- Driver register dump (0x16) ----
+const REGN = ['FAULT', 'DIAG', 'IC1', 'IC2', 'IC3', 'IC4'];
+const REGDEF = [null, null, 0x51, 0x0C, 0x40, 0x08];   // datasheet defaults
+$('readregs').onclick = async () => {
+  if (!device) return;
+  const buf = new Uint8Array(11);
+  buf[0] = 0x16;
+  $('dump').textContent = 'Reading…';
+  try { await device.sendReport(2, buf); } catch (e) { $('dump').textContent = 'Failed, retry'; }
+};
+function dumpReply(dv) {
+  if (dv.getUint8(0) !== 0x16) return;
+  const names = ['Coil 1', 'Coil 2', 'Coil 3', 'Coil 4', 'Voice'];
+  const hx = (n, w) => n.toString(16).toUpperCase().padStart(w, '0');
+  let lines = [], allZero = true, defaults = true, ola = true;
+  for (let d = 0; d < 5; d++) {
+    const parts = [];
+    for (let r = 0; r < 6; r++) {
+      const raw = dv.getUint16(1 + (d * 6 + r) * 2, true);
+      const data = raw & 0xFF;
+      if (r >= 2 && data !== 0) allZero = false;
+      if (r === 2 && data !== 0x51) defaults = false;
+      if (r === 5 && data !== 0x18) ola = false;
+      parts.push(REGN[r] + ' ' + hx(raw, 4));
+    }
+    lines.push(names[d] + ': ' + parts.join('  '));
+  }
+  $('dump').textContent = lines.join('\n');
+  $('dumpnote').textContent = allZero
+    ? 'Verdict: register reads return no data (all zero). Reads not working.'
+    : ola ? 'Verdict: reads and writes both work.'
+    : defaults ? 'Verdict: reads work (IC1 = 51, power-up default), writes are not landing.'
+    : 'Verdict: reads return data that does not match the datasheet defaults; send me this screenshot.';
+}
 </script>
 </body>
 </html>

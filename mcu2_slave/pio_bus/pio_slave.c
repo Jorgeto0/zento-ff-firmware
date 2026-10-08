@@ -40,6 +40,7 @@ static bool bus_ready      = false;  // Set true after successful init
 // master's 3 — at matched rates the slave drifts and misses clock edges.
 // Verified in simulation: matched rates lose the data, 4x recovers it exactly.
 #define PIO_CLOCK_DIV       15.625f
+#define PIO_SLAVE_TX_TIMEOUT_US 5000u   // whole reply must go within 5 ms
 
 // -----------------------------------------------------------------------------
 // pio_slave_init()
@@ -107,41 +108,32 @@ pio_slave_result_t pio_slave_receive(proto_m2s_t *packet, uint32_t timeout_us) {
         return PIO_SLAVE_ERR_PIN_TBD;
     }
 
+    // The RX state machine also clocks in junk while we send our reply (the
+    // master drives the clock in both directions). Skip bytes until a start
+    // byte, so a packet is never read misaligned.
     uint8_t *bytes = (uint8_t *)packet;
     uint32_t start = time_us_32();
-
-    for (uint8_t i = 0; i < sizeof(proto_m2s_t); i++) {
-
-        // Wait for byte in RX FIFO with timeout
+    uint8_t  i = 0;
+    while (i < sizeof(proto_m2s_t)) {
         while (pio_sm_is_rx_fifo_empty(pio_instance, sm_rx)) {
             if ((time_us_32() - start) > timeout_us) {
-                log_error("PIO slave RX timeout");
                 return PIO_SLAVE_ERR_TIMEOUT;
             }
         }
-
-        // Read byte — shift right 24, PIO pushes into MSB of 32-bit word
-        bytes[i] = (uint8_t)(pio_sm_get(pio_instance, sm_rx) >> 24);
+        // PIO pushes into the MSB of the 32-bit word
+        uint8_t byte = (uint8_t)(pio_sm_get(pio_instance, sm_rx) >> 24);
+        if (i == 0 && byte != PROTO_START_BYTE) continue;      // resync
+        bytes[i++] = byte;
     }
 
-    // Validate start byte
-    if (packet->start_byte != PROTO_START_BYTE) {
-        log_error("PIO slave RX bad start byte");
-        return PIO_SLAVE_ERR_BAD_PACKET;
-    }
-
-    // Validate packet type
+    // No UART logging here: a write blocks for milliseconds and would make
+    // the reply miss the master's read window.
     if (packet->packet_type != PROTO_TYPE_M2S) {
-        log_error("PIO slave RX wrong packet type");
         return PIO_SLAVE_ERR_BAD_PACKET;
     }
-
-    // Validate CRC
     if (!crc8_verify((const uint8_t *)packet + 1, sizeof(proto_m2s_t) - 1)) {
-        log_error("PIO slave RX CRC fail");
         return PIO_SLAVE_ERR_CRC;
     }
-
     return PIO_SLAVE_OK;
 }
 
@@ -155,31 +147,42 @@ pio_slave_result_t pio_slave_send(proto_s2m_t *packet) {
         return PIO_SLAVE_ERR_PIN_TBD;
     }
 
-    // Fill header fields
+    // Header. reserved[] is left as the caller set it: it carries the
+    // slave's link counters back to the master.
     packet->start_byte  = PROTO_START_BYTE;
     packet->packet_type = PROTO_TYPE_S2M;
     packet->length      = sizeof(proto_s2m_t) - 4;
-
-    // Clear reserved bytes
-    for (uint8_t i = 0; i < PROTO_RESERVED_BYTES; i++) {
-        packet->reserved[i] = 0x00;
-    }
-
-    // Compute CRC
     packet->crc8 = crc8_compute(
         (const uint8_t *)packet + 1,
         sizeof(proto_s2m_t) - 2
     );
 
-    // Both slave SMs stay enabled — no gating needed here. Neither drives
-    // the clock, so they cannot conflict, and 'pull block' stalls TX
-    // whenever its FIFO is empty. Disabling RX during a send would drop
-    // the first byte of the master's next packet.
+    // Bytes only leave when the master clocks them. If the master gives up,
+    // never block forever (the watchdog would reset us): time out, flush the
+    // TX state machine and restart it at the top of its program.
     const uint8_t *bytes = (const uint8_t *)packet;
+    uint32_t start = time_us_32();
     for (uint8_t i = 0; i < sizeof(proto_s2m_t); i++) {
-        pio_sm_put_blocking(pio_instance, sm_tx, (uint32_t)bytes[i] << 24);
+        while (pio_sm_is_tx_fifo_full(pio_instance, sm_tx)) {
+            if ((time_us_32() - start) > PIO_SLAVE_TX_TIMEOUT_US) {
+                pio_sm_set_enabled(pio_instance, sm_tx, false);
+                pio_sm_clear_fifos(pio_instance, sm_tx);
+                pio_sm_restart(pio_instance, sm_tx);
+                pio_sm_exec(pio_instance, sm_tx, pio_encode_jmp(offset_tx));
+                pio_sm_set_enabled(pio_instance, sm_tx, true);
+                return PIO_SLAVE_ERR_TIMEOUT;
+            }
+        }
+        pio_sm_put(pio_instance, sm_tx, (uint32_t)bytes[i] << 24);
     }
 
+    // Let the last bytes be clocked out, then drop the junk the RX side
+    // collected meanwhile. The master's next packet is ~10 ms away.
+    while (!pio_sm_is_tx_fifo_empty(pio_instance, sm_tx)) {
+        if ((time_us_32() - start) > PIO_SLAVE_TX_TIMEOUT_US) break;
+    }
+    busy_wait_us(100);
+    pio_sm_clear_fifos(pio_instance, sm_rx);
     return PIO_SLAVE_OK;
 }
 

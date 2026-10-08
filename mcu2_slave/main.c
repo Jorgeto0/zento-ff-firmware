@@ -14,6 +14,8 @@
 #include "config.h"
 #include "diagnostics/uart_log.h"
 #include "pio_bus/pio_slave.h"
+#include "motor/coil_pwm.h"
+#include "motor/current_sense.h"
 
 // -----------------------------------------------------------------------------
 // System clock — must match MCU1 exactly
@@ -30,6 +32,9 @@
 // LED heartbeat interval — matches MCU1 so both boards blink in step
 // -----------------------------------------------------------------------------
 #define HEARTBEAT_MS        500
+
+// Right stick coils above this current drop to half power (see main loop)
+#define STICK_GUARD_MA      750u
 
 // -----------------------------------------------------------------------------
 // Forward declarations
@@ -66,6 +71,10 @@ int main(void) {
     gpio_init_all();
     log_info("GPIO init complete");
 
+    // Right-side coils: both inputs low = coast, no force at boot
+    coil_pwm_init();
+    current_sense_init();
+
     // Step 5 — Start the inter-MCU PIO bus (slave listens)
     if (pio_slave_init() != PIO_SLAVE_OK) {
         log_warning("PIO slave init failed — bus unavailable");
@@ -86,27 +95,81 @@ int main(void) {
     uint32_t last_blink_ms = to_ms_since_boot(get_absolute_time());
     bool     led_on         = false;
 
-    uint16_t bus_rx_count = 0;
+    // Link counters, sent back to MCU1 in reserved[] so the dashboard can
+    // show whether packets arrive intact.
+    uint16_t rx_ok  = 0;
+    uint16_t rx_err = 0;
+
+    // Last measured coil currents (mA) and guard state, sent in each reply.
+    uint16_t coil_ma[DRV_COUNT] = {0};
+    uint8_t  guard_mask = 0;      // bit per stick coil held at half power
+    uint32_t last_cmd_ms = 0;     // 0 = no valid command yet / timed out
 
     while (1) {
 
         // Feed watchdog — must happen every loop iteration
         watchdog_update();
+        uint32_t now_ms = to_ms_since_boot(get_absolute_time());
 
-        // PIO bus test — reply to whatever the master sends
+        // MCU1 sends one packet about every 10 ms. Wait up to 20 ms for it.
         if (pio_slave_is_ready()) {
             proto_m2s_t in;
-            if (pio_slave_receive(&in, 1000) == PIO_SLAVE_OK) {
-                // NO logging before the reply — a UART write at 115200
-                // blocks ~2ms, longer than the master waits for us.
+            pio_slave_result_t r = pio_slave_receive(&in, 20000);
+
+            if (r == PIO_SLAVE_OK) {
+                rx_ok++;
+
+                // 1. Apply the five forces. A coil commanded to 0 also has
+                //    its overcurrent guard released.
+                for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                    if (in.coil_target[i] == 0 && (guard_mask & (1u << i))) {
+                        guard_mask &= (uint8_t)~(1u << i);
+                        coil_set_scale_q16((drv_id_t)i, COIL_SCALE_ONE);
+                    }
+                    coil_set_force((drv_id_t)i, in.coil_target[i]);
+                }
+                last_cmd_ms = to_ms_since_boot(get_absolute_time());
+
+                // 2. Reply straight away with what we measured last cycle.
                 proto_s2m_t out = {0};
-                out.stick_x = (int16_t)(0x1000 + bus_rx_count++);
+                for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                    out.coil_current[i] = coil_ma[i];
+                }
+                out.status = (uint8_t)(guard_mask & 0x1Fu);
+                out.reserved[0] = (uint8_t)(rx_ok & 0xFF);
+                out.reserved[1] = (uint8_t)(rx_ok >> 8);
+                out.reserved[2] = (uint8_t)(rx_err & 0xFF);
+                out.reserved[3] = (uint8_t)(rx_err >> 8);
                 pio_slave_send(&out);
+
+                // 3. Measure for the next reply, while the bus is quiet.
+                for (uint8_t i = 0; i < DRV_COUNT; i++) {
+                    coil_ma[i] = current_coil_ma((drv_id_t)i);
+                }
+
+                // Overcurrent guard for the stick coils. Their rail (6V_2)
+                // is unmeasured and may be 12V, so above STICK_GUARD_MA a
+                // coil is held at half power until it is commanded to 0.
+                for (uint8_t i = 0; i < DRV_VC1; i++) {
+                    if (coil_ma[i] > STICK_GUARD_MA && !(guard_mask & (1u << i))) {
+                        guard_mask |= (uint8_t)(1u << i);
+                        coil_set_scale_q16((drv_id_t)i, COIL_SCALE_ONE / 2u);
+                    }
+                }
+            } else if (r != PIO_SLAVE_ERR_TIMEOUT) {
+                rx_err++;
             }
         }
 
-        // LED heartbeat — non-blocking, proves the loop is running
-        uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+        // Safety: no valid command for 500 ms (cable out, MCU1 reset,
+        // dashboard closed) -> all right-side coils off.
+        now_ms = to_ms_since_boot(get_absolute_time());
+        if (last_cmd_ms != 0 && (now_ms - last_cmd_ms) > 500u) {
+            coil_all_off();
+            last_cmd_ms = 0;
+        }
+
+        // Heartbeat on a spare pin (no LED on MCU2) — proves the loop runs
         if ((now_ms - last_blink_ms) >= HEARTBEAT_MS) {
             last_blink_ms = now_ms;
             led_on = !led_on;
@@ -114,11 +177,6 @@ int main(void) {
                 gpio_put(MCU2_SPARE_PIN, led_on);
             }
         }
-
-        // Phase 1 placeholder — PIO slave driver added in next step
-        // DO NOT add blocking calls here
-        // DO NOT add sleep_ms() here
-
     }
 
     return 0;

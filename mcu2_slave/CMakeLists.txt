@@ -14,6 +14,8 @@ add_executable(mcu2_slave
     main.c
     diagnostics/uart_log.c
     pio_bus/pio_slave.c
+    motor/coil_pwm.c
+    motor/current_sense.c
 )
 
 # -----------------------------------------------------------------------------
@@ -24,6 +26,8 @@ target_link_libraries(mcu2_slave
     hardware_uart
     hardware_watchdog
     hardware_pio
+    hardware_pwm
+    hardware_adc
     pico_float_pico
     pico_double_pico
 )
