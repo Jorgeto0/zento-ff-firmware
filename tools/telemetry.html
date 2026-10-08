@@ -188,6 +188,14 @@
     </div>
 
     <div class="card">
+      <h2>Right side self-test</h2>
+      <pre id="rtout" style="font-size:11px;white-space:pre-wrap;margin:0">—</pre>
+      <button class="ghost" id="runrtest" style="margin-top:12px" disabled>Run test</button>
+      <button class="ghost" id="copyrtest" style="margin-top:12px" disabled>Copy results</button>
+      <div class="note" id="rtnote">Runs each right coil on its own: rest, 50%, 100%, reverse. Checks the link, the right board firmware, the driver pins, the current and which sense line sees it. About 11 seconds.</div>
+    </div>
+
+    <div class="card">
       <h2>Driver registers (left)</h2>
       <pre id="dump" style="font-size:11px;white-space:pre-wrap;margin:0">—</pre>
       <button class="ghost" id="readregs" style="margin-top:12px" disabled>Read registers</button>
@@ -326,13 +334,14 @@ $('connect').onclick = async () => {
     $('alloffr').disabled = false;
     $('readregs').disabled = false;
     $('runinterf').disabled = false;
+    $('runrtest').disabled = false;
     if (!sensPoll) sensPoll = setInterval(askSensors, 250);
     if (!rightPoll) rightPoll = setInterval(askRight, 250);
     $('setlim').disabled = false;
     $('runtest').disabled = false;
     device.addEventListener('inputreport', e => {
       if (e.reportId === 1) render(e.data);
-      if (e.reportId === 2) { settingsReply(e.data); selftestReply(e.data); rightReply(e.data); dumpReply(e.data); sensorsReply(e.data); interfReply(e.data); }
+      if (e.reportId === 2) { settingsReply(e.data); selftestReply(e.data); rightReply(e.data); dumpReply(e.data); sensorsReply(e.data); interfReply(e.data); rtestReply(e.data); }
     });
     askSettings();
   } catch (err) {
@@ -585,6 +594,137 @@ function interfReply(dv) {
   }
   $('itout').textContent = lines.join('\n');
   $('runinterf').disabled = false;
+}
+
+// ---- Right side self-test (0x19) ----
+const FW_EXPECTED = 30;
+const R_NAMES = ['Coil 1', 'Coil 2', 'Coil 3', 'Coil 4', 'Voice coil'];
+const R_PWM_GP = [25, 27, 29, 31, 33], R_DIR_GP = [26, 28, 30, 32, 34];
+const COIL_OHM = 15.5;                 // left stick coils, measured
+let rtPoll = null, rtCoils = [], rtHead = null;
+const A = ma => (ma / 1000).toFixed(2) + ' A';
+const PCLS = ['low', 'switching', 'high', 'no data'];
+
+// Pure: turns the raw results into readable lines. Exported for testing.
+function rtestVerdict(h, coils) {
+  const out = [], probs = [];
+  const total = h.ok + h.to + h.crc + h.bad;
+  if (h.ok === 0) {
+    out.push('LINK: right board never answered (' + total + ' tries).');
+    out.push('  Check 1) right board flashed with mcu2_slave_v' + FW_EXPECTED + '.uf2');
+    out.push('        2) cable between left and right board seated');
+    out.push('        3) right board has power');
+    return { lines: out, problems: 1 };
+  }
+  const errs = h.to + h.crc + h.bad;
+  out.push('LINK: ' + h.ok + ' OK, ' + h.to + ' timeouts, ' + h.crc + ' CRC errors, ' + h.bad + ' bad' +
+           (errs > total * 0.02 ? '  <- PROBLEM: unreliable link' : '  (good)'));
+  if (errs > total * 0.02) probs.push('link');
+  if (h.fw !== FW_EXPECTED) {
+    out.push('RIGHT FW: ' + (h.fw === 0 ? 'older than v30' : 'v' + h.fw) + '  <- PROBLEM: flash mcu2_slave_v' + FW_EXPECTED + '.uf2');
+    probs.push('fw');
+  } else out.push('RIGHT FW: v' + h.fw + ' (good)');
+  if (h.reset) { out.push('RIGHT BOARD RESTARTED during the test  <- PROBLEM: power dip or crash'); probs.push('reset'); }
+  if (h.flags & 1) out.push('note: right board last started from its watchdog (it had frozen once)');
+  if (h.rxerr) out.push('note: right board saw ' + h.rxerr + ' bad packets');
+
+  const rails = [];
+  coils.forEach((k, i) => {
+    const p = n => (k.pins >> (n * 4)) & 0xF;
+    const cls = nib => [nib & 3, (nib >> 2) & 3];
+    const [restP, restD] = cls(p(0)), [f50P, f50D] = cls(p(1)), [revP, revD] = cls(p(2));
+    const pinData = restP !== 3 && f50P !== 3 && revP !== 3;
+    const issues = [];
+    if (k.samples === 0) issues.push('no replies while testing this coil');
+    if (k.idle > 100) issues.push('current at rest ' + A(k.idle) + ': sense line or driver stuck on');
+    if (pinData) {
+      if (restP !== 0) issues.push('GP' + R_PWM_GP[i] + ' (IN1) ' + PCLS[restP] + ' at rest, should be low');
+      if (restD !== 0) issues.push('GP' + R_DIR_GP[i] + ' (IN2) ' + PCLS[restD] + ' at rest, should be low');
+      if (f50P !== 2) issues.push('GP' + R_PWM_GP[i] + ' (IN1) ' + PCLS[f50P] + ' when driving, should be high: pin shorted or not connected');
+      if (f50D !== 1) issues.push('GP' + R_DIR_GP[i] + ' (IN2) ' + PCLS[f50D] + ' when driving, should be switching: pin shorted or not connected');
+      if (revD !== 2) issues.push('GP' + R_DIR_GP[i] + ' (IN2) ' + PCLS[revD] + ' in reverse, should be high: pin shorted or not connected');
+    }
+    const pinsOk = pinData && issues.length === 0;
+    const fwdPk = k.f100pk, revPk = k.revpk;
+    if (fwdPk < 50 && revPk < 50) {
+      if (k.other >= 50) {
+        issues.push('no current on its own sense, but ' + R_NAMES[k.otherIdx - 1] + ' sense saw ' + A(k.other) +
+                    ': sense lines or coil wiring swapped');
+      } else if (pinsOk) {
+        issues.push('MCU pins drive correctly but no current: coil wire/connector open, driver rail missing (' +
+                    (i === 4 ? 'VCC 12V' : '6V_2') + '), driver in fault, or IPROPI line open');
+      } else if (k.samples > 0) {
+        issues.push('no current');
+      }
+    } else {
+      if (revPk < fwdPk * 0.3) issues.push('current forward ' + A(fwdPk) + ' but reverse only ' + A(revPk) + ': one side of the driver (IN2/OUT2) not working');
+      if (fwdPk < revPk * 0.3) issues.push('current in reverse ' + A(revPk) + ' but forward only ' + A(fwdPk) + ': one side of the driver (IN1/OUT1) not working');
+      if (k.other >= 50 && k.other > fwdPk * 0.2) issues.push(R_NAMES[k.otherIdx - 1] + ' sense also moved (' + A(k.other) + '): crosstalk or shared wiring');
+      if (!(k.guard & 1) && fwdPk >= 100 && (k.f50 < fwdPk * 0.3 || k.f50 > fwdPk * 0.75))
+        issues.push('50% step gave ' + A(k.f50) + ', expected about half of ' + A(fwdPk));
+    }
+    let line = R_NAMES[i] + ': rest ' + A(k.idle) + ', 50% ' + A(k.f50) + ', 100% ' + A(fwdPk) + ', reverse ' + A(revPk);
+    if (k.guard) line += ', held at half power (over 0.75 A)';
+    if (!pinData) line += ', pin check: no data';
+    out.push(line);
+    if (issues.length) { issues.forEach(t => out.push('  <- PROBLEM: ' + t)); probs.push(i); }
+    else out.push('  OK');
+    if (i < 4 && fwdPk >= 50) rails.push(fwdPk * COIL_OHM / 1000);
+  });
+  if (rails.length) {
+    const v = rails.reduce((a, b) => a + b, 0) / rails.length;
+    out.push('Right stick rail estimate: about ' + v.toFixed(1) + ' V (current x 15.5 ohm, assumes the same coils as the left)');
+  }
+  out.push(probs.length ? 'RESULT: ' + probs.length + ' problem(s), send a screenshot or Copy results'
+                        : 'RESULT: all right side checks passed');
+  return { lines: out, problems: probs.length };
+}
+
+function rtDecodeCoil(dv, o) {
+  return { idle: dv.getUint16(o, true), f50: dv.getUint16(o + 2, true), f100: dv.getUint16(o + 4, true),
+           f100pk: dv.getUint16(o + 6, true), rev: dv.getUint16(o + 8, true), revpk: dv.getUint16(o + 10, true),
+           pins: dv.getUint16(o + 12, true), guard: dv.getUint8(o + 14), otherIdx: dv.getUint8(o + 15),
+           other: dv.getUint16(o + 16, true), samples: dv.getUint8(o + 18) };
+}
+async function askRtest(start) {
+  if (!device) return;
+  const buf = new Uint8Array(11);
+  buf[0] = 0x19; buf[1] = start ? 1 : 0;
+  try { await device.sendReport(2, buf); } catch (e) {}
+}
+$('runrtest').onclick = () => {
+  rtCoils = []; rtHead = null;
+  $('rtout').textContent = 'Starting…';
+  $('runrtest').disabled = true; $('copyrtest').disabled = true;
+  askRtest(true);
+  if (!rtPoll) rtPoll = setInterval(() => askRtest(false), 500);
+};
+$('copyrtest').onclick = () => {
+  navigator.clipboard.writeText('ZENTO right side self-test\n' + $('rtout').textContent)
+    .then(() => { $('copyrtest').textContent = 'Copied'; setTimeout(() => $('copyrtest').textContent = 'Copy results', 1500); });
+};
+function rtestReply(dv) {
+  if (dv.getUint8(0) !== 0x19) return;
+  const state = dv.getUint8(1), prog = dv.getUint8(2), part = dv.getUint8(3);
+  if (state === 1) {
+    const c = Math.floor(prog / 6), st = ['rest', '50%', '100%', 'off', 'reverse', 'off'][prog % 6];
+    $('rtout').textContent = 'Running… ' + R_NAMES[c] + ', ' + st + '  (' + Math.round(prog / 30 * 100) + '%)';
+    return;
+  }
+  if (state === 0) return;
+  if (part === 0) {
+    rtHead = { ok: dv.getUint16(4, true), to: dv.getUint16(6, true), crc: dv.getUint16(8, true), bad: dv.getUint16(10, true),
+               fw: dv.getUint8(12), flags: dv.getUint8(13), reset: dv.getUint8(14), rxerr: dv.getUint8(15) };
+    rtCoils = [rtDecodeCoil(dv, 16), rtDecodeCoil(dv, 35)];
+    return;
+  }
+  if (!rtHead || rtCoils.length !== 2) return;
+  for (let c = 0; c < 3; c++) rtCoils.push(rtDecodeCoil(dv, 4 + c * 19));
+  if (rtPoll) { clearInterval(rtPoll); rtPoll = null; }
+  const v = rtestVerdict(rtHead, rtCoils);
+  $('rtout').textContent = v.lines.join('\n');
+  $('rtout').style.color = v.problems ? '#ef4444' : '';
+  $('runrtest').disabled = false; $('copyrtest').disabled = false;
 }
 
 // ---- Driver register dump (0x16) ----

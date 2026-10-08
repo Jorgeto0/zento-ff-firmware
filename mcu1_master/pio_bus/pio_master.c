@@ -135,10 +135,9 @@ pio_bus_result_t pio_master_send(proto_m2s_t *packet) {
     // Fill timestamp
     packet->timestamp_us = (uint32_t)time_us_32();
 
-    // Clear reserved bytes
-    for (uint8_t i = 0; i < PROTO_RESERVED_BYTES; i++) {
-        packet->reserved[i] = 0x00;
-    }
+    // reserved[] is left as the caller set it: reserved[0] carries the
+    // self-test pin-probe request (coil + 1, 0 = none). Callers zero the
+    // packet before filling it.
 
     // Compute CRC over everything after start_byte, before crc8 field
     packet->crc8 = crc8_compute(

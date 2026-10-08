@@ -36,6 +36,24 @@
 // Right stick coils above this current drop to half power (see main loop)
 #define STICK_GUARD_MA      750u
 
+// Driver input pins per coil, for the pin check in the self-test
+static const uint8_t probe_pwm_pin[DRV_COUNT] = {
+    S_PWM_COIL1_PIN, S_PWM_COIL2_PIN, S_PWM_COIL3_PIN, S_PWM_COIL4_PIN, S_PWM_VC1_PIN };
+static const uint8_t probe_dir_pin[DRV_COUNT] = {
+    S_DIR_COIL1_PIN, S_DIR_COIL2_PIN, S_DIR_COIL3_PIN, S_DIR_COIL4_PIN, S_DIR_VC1_PIN };
+
+// Sample one pin 64 times over ~70 us (almost two 25 kHz PWM periods) and
+// classify it: 0 always low, 1 switching, 2 always high. Reads the pad, so
+// it shows what the pin really does, including a short to GND or 3V3.
+static uint8_t pin_class(uint8_t pin) {
+    uint8_t highs = 0;
+    for (uint8_t n = 0; n < 64; n++) {
+        if (gpio_get(pin)) highs++;
+        busy_wait_us_32(1);
+    }
+    return (highs == 0) ? 0u : (highs == 64) ? 2u : 1u;
+}
+
 // -----------------------------------------------------------------------------
 // Forward declarations
 // -----------------------------------------------------------------------------
@@ -43,6 +61,7 @@ static void system_clock_init(void);
 static void watchdog_init(void);
 static void gpio_init_all(void);
 static void check_reset_reason(void);
+static bool boot_by_watchdog = false;
 
 // -----------------------------------------------------------------------------
 // main()
@@ -104,6 +123,8 @@ int main(void) {
     uint16_t coil_ma[DRV_COUNT] = {0};
     uint8_t  guard_mask = 0;      // bit per stick coil held at half power
     uint32_t last_cmd_ms = 0;     // 0 = no valid command yet / timed out
+    uint8_t  probe_echo = 0;      // coil+1 whose pins were sampled, 0 = none
+    uint8_t  probe_pins = 0;      // PWM pin class | DIR pin class << 2
 
     while (1) {
 
@@ -136,6 +157,14 @@ int main(void) {
                     out.coil_current[i] = coil_ma[i];
                 }
                 out.status = (uint8_t)(guard_mask & 0x1Fu);
+                // No right stick sensor yet, so the stick fields carry
+                // diagnostics for the self-test:
+                //   stick_x: firmware version | flags << 8 (bit0 watchdog boot)
+                //   stick_y: probed coil + 1 | pin classes << 8
+                //   stick_z: uptime in seconds
+                out.stick_x = (int16_t)(ZENTO_FW_VERSION | ((boot_by_watchdog ? 1u : 0u) << 8));
+                out.stick_y = (int16_t)(probe_echo | ((uint16_t)probe_pins << 8));
+                out.stick_z = (int16_t)(uint16_t)(now_ms / 1000u);
                 out.reserved[0] = (uint8_t)(rx_ok & 0xFF);
                 out.reserved[1] = (uint8_t)(rx_ok >> 8);
                 out.reserved[2] = (uint8_t)(rx_err & 0xFF);
@@ -145,6 +174,18 @@ int main(void) {
                 // 3. Measure for the next reply, while the bus is quiet.
                 for (uint8_t i = 0; i < DRV_COUNT; i++) {
                     coil_ma[i] = current_coil_ma((drv_id_t)i);
+                }
+
+                // Self-test pin check: MCU1 names a coil in reserved[0]
+                // (coil + 1, 0 = none); sample both of its driver inputs.
+                uint8_t pc = in.reserved[0];
+                if (pc >= 1 && pc <= DRV_COUNT) {
+                    probe_pins = (uint8_t)(pin_class(probe_pwm_pin[pc - 1]) |
+                                           (pin_class(probe_dir_pin[pc - 1]) << 2));
+                    probe_echo = pc;
+                } else {
+                    probe_echo = 0;
+                    probe_pins = 0;
                 }
 
                 // Overcurrent guard for the stick coils. Their rail (6V_2)
@@ -257,7 +298,8 @@ static void gpio_init_all(void) {
 // check_reset_reason()
 // -----------------------------------------------------------------------------
 static void check_reset_reason(void) {
-    if (watchdog_caused_reboot()) {
+    boot_by_watchdog = watchdog_caused_reboot();
+    if (boot_by_watchdog) {
         log_error("RESET CAUSE: Watchdog timeout — main loop stalled");
     } else {
         log_info("RESET CAUSE: Normal power-on or manual reset");

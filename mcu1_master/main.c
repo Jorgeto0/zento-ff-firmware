@@ -25,6 +25,7 @@
 #include "motor/current_limit.h"
 #include "motor/coil_settings.h"
 #include "motor/coil_selftest.h"
+#include "motor/right_selftest.h"
 #include "sensors/coil_interf.h"
 
 // -----------------------------------------------------------------------------
@@ -152,6 +153,9 @@ int main(void) {
     bool     dump_reply_pending  = false;
     bool     sensors_reply_pending = false;
     bool     interf_reply_pending  = false;
+    bool     rst_reply_pending     = false;
+    bool     rst_ever_run          = false;
+    uint8_t  rst_part              = 0;
 
     // Latest sensor readings, refreshed at 50 Hz, for the Sensors card
     tmag_xyz_t    sens_xyz = {0, 0, 0};
@@ -204,6 +208,21 @@ int main(void) {
         //   [per coil x5: dX,dY,dZ,dAngle i16, ok u8]
         #define CMD_GET_SENSORS  0x17
         #define CMD_INTERF_TEST  0x18
+        // 0x19: payload[0] = 1 starts the RIGHT coil self-test (about 11 s).
+        //   Any 0x19 also asks for the result. Reply, config report ID 2:
+        //   [0x19][state: 0 never run, 1 running, 2 done][progress u8]
+        //   [link ok u16][timeouts u16][crc u16][bad u16]
+        //   [MCU2 fw u8][MCU2 flags u8][MCU2 reset u8][MCU2 rx err u8]
+        //   [part u8: 0 or 1]
+        //   part 0: [link ok u16][timeouts u16][crc u16][bad u16]
+        //           [MCU2 fw u8][MCU2 flags u8][MCU2 reset u8][MCU2 rx err u8]
+        //           coils 1-2
+        //   part 1: coils 3-5
+        //   each coil, 19 bytes, mA as u16: [rest][+50%][+100% avg]
+        //   [+100% peak][-100% avg][-100% peak][pins u16][guard u8]
+        //   [other coil u8][other mA u16][samples u8]
+        //   While running only part 0 is sent (progress). When done, both.
+        #define CMD_RIGHT_TEST   0x19
         if (hid_get_config_received()) {
             hid_config_report_t cfg;
             hid_get_last_config(&cfg);
@@ -262,7 +281,7 @@ int main(void) {
                     last_force_ms = 0;          // keep the timeout out of it
                     selftest_start();
                 }
-            } else if (cfg.command == CMD_SET_FORCES_R) {
+            } else if (cfg.command == CMD_SET_FORCES_R && !rst_running()) {
                 for (uint8_t i = 0; i < DRV_COUNT; i++) {
                     right_force[i] = (int16_t)((uint16_t)cfg.payload[i*2] |
                                                ((uint16_t)cfg.payload[i*2+1] << 8));
@@ -274,6 +293,13 @@ int main(void) {
                 dump_reply_pending = true;
             } else if (cfg.command == CMD_GET_SENSORS) {
                 sensors_reply_pending = true;
+            } else if (cfg.command == CMD_RIGHT_TEST) {
+                if (cfg.payload[0] == 1 && !rst_running()) {
+                    rst_start(to_ms_since_boot(get_absolute_time()));
+                    rst_ever_run = true;
+                }
+                rst_reply_pending = true;
+                rst_part = 0;
             } else if (cfg.command == CMD_INTERF_TEST) {
                 if (!selftest_running() && !interf_running()) {
                     last_force_ms = 0;
@@ -330,6 +356,48 @@ int main(void) {
                 *q++ = ir[c].ok;
             }
             if (hid_send_config(&rep)) interf_reply_pending = false;
+        }
+
+        // Right coil self-test: advance it, reply when done or when asked
+        if (rst_task(to_ms_since_boot(get_absolute_time()))) {
+            rst_reply_pending = true;
+            rst_part = 0;
+        }
+        if (rst_reply_pending && !sensors_reply_pending && !interf_reply_pending) {
+            hid_config_report_t rep;
+            memset(&rep, 0, sizeof(rep));
+            rep.command = CMD_RIGHT_TEST;
+            uint8_t *q = rep.payload;
+            const rst_result_t *rr = rst_results();
+            bool run = rst_running();
+            *q++ = run ? 1u : (rst_ever_run ? 2u : 0u);
+            *q++ = rst_progress();
+            *q++ = rst_part;
+            #define PUT16(v) do { uint16_t _v = (uint16_t)(v); *q++ = (uint8_t)(_v & 0xFF); *q++ = (uint8_t)(_v >> 8); } while (0)
+            uint8_t c0 = 0, c1 = 2;
+            if (rst_part == 0) {
+                PUT16(rr->link_ok); PUT16(rr->link_timeout);
+                PUT16(rr->link_crc); PUT16(rr->link_bad);
+                *q++ = rr->slave_fw; *q++ = rr->slave_flags;
+                *q++ = rr->slave_reset; *q++ = rr->slave_rx_err;
+            } else {
+                c0 = 2; c1 = 5;
+            }
+            for (uint8_t c = c0; c < c1; c++) {
+                const rst_coil_t *k = &rr->coil[c];
+                PUT16(k->idle_ma); PUT16(k->f50_ma); PUT16(k->f100_ma);
+                PUT16(k->f100_peak); PUT16(k->rev_ma); PUT16(k->rev_peak);
+                PUT16(k->pins);
+                *q++ = k->guard; *q++ = k->other_idx;
+                PUT16(k->other_ma);
+                *q++ = k->samples;
+            }
+            #undef PUT16
+            if (hid_send_config(&rep)) {
+                // Progress polls get part 0 only; a finished test sends both
+                if (rst_part == 0 && !run && rst_ever_run) rst_part = 1;
+                else { rst_reply_pending = false; rst_part = 0; }
+            }
         }
 
         // Right-side status reply
@@ -457,10 +525,37 @@ int main(void) {
 
             proto_m2s_t out = {0};
             for (uint8_t i = 0; i < DRV_COUNT; i++) out.coil_target[i] = right_force[i];
+            if (rst_running()) {
+                // Self-test owns the right coils; the host's forces wait
+                uint8_t probe = 0;
+                int16_t tf[DRV_COUNT];     // local copy: out is a packed struct
+                rst_fill(link_ms, tf, &probe);
+                for (uint8_t i = 0; i < DRV_COUNT; i++) out.coil_target[i] = tf[i];
+                out.reserved[0] = probe;
+            }
 
             if (pio_master_send(&out) == PIO_BUS_OK) {
                 proto_s2m_t in;
                 pio_bus_result_t r = pio_master_receive(&in, 3000);
+                {
+                    rst_reply_t rp;
+                    memset(&rp, 0, sizeof(rp));
+                    int rr = RST_LINK_BAD;
+                    if (r == PIO_BUS_OK) {
+                        rr = RST_LINK_OK;
+                        for (uint8_t i = 0; i < DRV_COUNT; i++) rp.ma[i] = in.coil_current[i];
+                        rp.status = in.status;
+                        rp.sx = (uint16_t)in.stick_x;
+                        rp.sy = (uint16_t)in.stick_y;
+                        rp.sz = (uint16_t)in.stick_z;
+                        rp.rx_err = (uint16_t)(in.reserved[2] | (in.reserved[3] << 8));
+                    } else if (r == PIO_BUS_ERR_TIMEOUT) {
+                        rr = RST_LINK_TIMEOUT;
+                    } else if (r == PIO_BUS_ERR_CRC) {
+                        rr = RST_LINK_CRC;
+                    }
+                    rst_on_reply(to_ms_since_boot(get_absolute_time()), rr, &rp);
+                }
                 if (r == PIO_BUS_OK) {
                     link_ok++;
                     link_last_ok_ms = to_ms_since_boot(get_absolute_time());

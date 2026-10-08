@@ -177,6 +177,13 @@
 // MCU2 has NO plain LED — only addressable RGB. No simple heartbeat possible.
 
 // -----------------------------------------------------------------------------
+// Firmware version, built into both MCUs. MCU2 reports it over the link so the
+// dashboard can tell when the right board still runs an older build.
+// Bump on every release.
+// -----------------------------------------------------------------------------
+#define ZENTO_FW_VERSION        30
+
+// -----------------------------------------------------------------------------
 // Build target guard.
 // This board is an RP2350B with 48 GPIOs. If the build is configured for an
 // RP2350A the SDK masks bit 5 off every PIO pin number, so GPIO38/39/40

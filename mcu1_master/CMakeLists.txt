@@ -27,6 +27,7 @@ add_executable(mcu1_master
     motor/current_limit.c
     motor/coil_settings.c
     motor/coil_selftest.c
+    motor/right_selftest.c
     pio_bus/pio_master.c
     usb_hid/hid_descriptors.c
     usb_hid/hid.c
