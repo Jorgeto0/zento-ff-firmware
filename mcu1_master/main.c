@@ -373,13 +373,17 @@ int main(void) {
             *q++ = run ? 1u : (rst_ever_run ? 2u : 0u);
             *q++ = rst_progress();
             *q++ = rst_part;
-            #define PUT16(v) do { uint16_t _v = (uint16_t)(v); *q++ = (uint8_t)(_v & 0xFF); *q++ = (uint8_t)(_v >> 8); } while (0)
+            // Bounds-checked writes (part 0 uses 53 bytes, part 1 uses 60, of 62)
+            uint8_t * const q_end = rep.payload + sizeof(rep.payload);
+            #define PUT16(v) do { uint16_t _v = (uint16_t)(v); \
+                if (q + 2 <= q_end) { *q++ = (uint8_t)(_v & 0xFF); *q++ = (uint8_t)(_v >> 8); } } while (0)
+            #define PUT8(v) do { if (q < q_end) *q++ = (uint8_t)(v); } while (0)
             uint8_t c0 = 0, c1 = 2;
             if (rst_part == 0) {
                 PUT16(rr->link_ok); PUT16(rr->link_timeout);
                 PUT16(rr->link_crc); PUT16(rr->link_bad);
-                *q++ = rr->slave_fw; *q++ = rr->slave_flags;
-                *q++ = rr->slave_reset; *q++ = rr->slave_rx_err;
+                PUT8(rr->slave_fw); PUT8(rr->slave_flags);
+                PUT8(rr->slave_reset); PUT8(rr->slave_rx_err);
             } else {
                 c0 = 2; c1 = 5;
             }
@@ -388,11 +392,12 @@ int main(void) {
                 PUT16(k->idle_ma); PUT16(k->f50_ma); PUT16(k->f100_ma);
                 PUT16(k->f100_peak); PUT16(k->rev_ma); PUT16(k->rev_peak);
                 PUT16(k->pins);
-                *q++ = k->guard; *q++ = k->other_idx;
+                PUT8(k->guard); PUT8(k->other_idx);
                 PUT16(k->other_ma);
-                *q++ = k->samples;
+                PUT8(k->samples);
             }
             #undef PUT16
+            #undef PUT8
             if (hid_send_config(&rep)) {
                 // Progress polls get part 0 only; a finished test sends both
                 if (rst_part == 0 && !run && rst_ever_run) rst_part = 1;
