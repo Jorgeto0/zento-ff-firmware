@@ -17,6 +17,7 @@ add_executable(mcu1_master
     sensors/spi_pio.c
     sensors/spi_pio_m1.c
     sensors/as5047p.c
+    sensors/coil_interf.c
     sensors/mcp9808.c
     sensors/spi_pio_m3.c
     sensors/lsm6dsl.c

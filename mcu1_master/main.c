@@ -25,6 +25,7 @@
 #include "motor/current_limit.h"
 #include "motor/coil_settings.h"
 #include "motor/coil_selftest.h"
+#include "sensors/coil_interf.h"
 
 // -----------------------------------------------------------------------------
 // System clock frequency
@@ -149,6 +150,15 @@ int main(void) {
     uint32_t link_ms = 0;
     bool     right_reply_pending = false;
     bool     dump_reply_pending  = false;
+    bool     sensors_reply_pending = false;
+    bool     interf_reply_pending  = false;
+
+    // Latest sensor readings, refreshed at 50 Hz, for the Sensors card
+    tmag_xyz_t    sens_xyz = {0, 0, 0};
+    tmag_result_t sens_tmag_r = TMAG_ERR_SPI;
+    uint16_t      sens_ang = 0;
+    as_result_t   sens_as_r = AS_ERR_SPI;
+    as_diag_t     sens_diag = {0};
     bool     settings_saved = settings_loaded;   // flash matches live values
 
     while (1) {
@@ -186,12 +196,20 @@ int main(void) {
         #define CMD_SET_FORCES_R 0x14
         #define CMD_GET_RIGHT    0x15
         #define CMD_DRV_DUMP     0x16
+        // 0x17: request latest sensor readings. Reply:
+        //   [0x17][TMAG init u8][TMAG read u8][X i16][Y i16][Z i16][wiring u8]
+        //   [AS init u8][AS read u8][angle u16][AGC u8][flags u8: MAGH,MAGL,COF,LF]
+        // 0x18: run the coil interference test. Reply when done:
+        //   [0x18][base X,Y,Z i16][base angle u16][base ok u8]
+        //   [per coil x5: dX,dY,dZ,dAngle i16, ok u8]
+        #define CMD_GET_SENSORS  0x17
+        #define CMD_INTERF_TEST  0x18
         if (hid_get_config_received()) {
             hid_config_report_t cfg;
             hid_get_last_config(&cfg);
             cfg_rx_count++;
             cfg_cmd_seen = cfg.command;
-            if (cfg.command == CMD_SET_FORCES && !selftest_running()) {
+            if (cfg.command == CMD_SET_FORCES && !selftest_running() && !interf_running()) {
                 for (uint8_t i = 0; i < DRV_COUNT; i++) {
                     int16_t f = (int16_t)((uint16_t)cfg.payload[i*2] |
                                           ((uint16_t)cfg.payload[i*2+1] << 8));
@@ -240,7 +258,7 @@ int main(void) {
             } else if (cfg.command == CMD_GET_LIMITS) {
                 limits_reply_pending = true;
             } else if (cfg.command == CMD_SELF_TEST) {
-                if (!selftest_running()) {
+                if (!selftest_running() && !interf_running()) {
                     last_force_ms = 0;          // keep the timeout out of it
                     selftest_start();
                 }
@@ -254,7 +272,64 @@ int main(void) {
                 right_reply_pending = true;
             } else if (cfg.command == CMD_DRV_DUMP) {
                 dump_reply_pending = true;
+            } else if (cfg.command == CMD_GET_SENSORS) {
+                sensors_reply_pending = true;
+            } else if (cfg.command == CMD_INTERF_TEST) {
+                if (!selftest_running() && !interf_running()) {
+                    last_force_ms = 0;
+                    interf_start();
+                }
             }
+        }
+
+        // Interference test runs alongside everything else; reply when done.
+        if (interf_task()) interf_reply_pending = true;
+
+        // Sensors reply
+        if (sensors_reply_pending) {
+            hid_config_report_t rep;
+            memset(&rep, 0, sizeof(rep));
+            rep.command = CMD_GET_SENSORS;
+            uint8_t *q = rep.payload;
+            extern uint8_t tmag_wiring;
+            *q++ = (uint8_t)tmag_status;
+            *q++ = (uint8_t)sens_tmag_r;
+            const int16_t v3[3] = { sens_xyz.x, sens_xyz.y, sens_xyz.z };
+            for (uint8_t i = 0; i < 3; i++) {
+                *q++ = (uint8_t)((uint16_t)v3[i] & 0xFF); *q++ = (uint8_t)((uint16_t)v3[i] >> 8);
+            }
+            *q++ = tmag_wiring;
+            *q++ = (uint8_t)as_status;
+            *q++ = (uint8_t)sens_as_r;
+            *q++ = (uint8_t)(sens_ang & 0xFF); *q++ = (uint8_t)(sens_ang >> 8);
+            *q++ = sens_diag.agc;
+            *q++ = (uint8_t)((sens_diag.magh ? 1u : 0u) | (sens_diag.magl ? 2u : 0u) |
+                             (sens_diag.cof  ? 4u : 0u) | (sens_diag.lf   ? 8u : 0u));
+            if (hid_send_config(&rep)) sensors_reply_pending = false;
+        }
+
+        // Interference test reply
+        if (interf_reply_pending && !sensors_reply_pending) {
+            hid_config_report_t rep;
+            memset(&rep, 0, sizeof(rep));
+            rep.command = CMD_INTERF_TEST;
+            uint8_t *q = rep.payload;
+            const interf_base_t *bs = interf_baseline();
+            const int16_t b3[3] = { bs->x, bs->y, bs->z };
+            for (uint8_t i = 0; i < 3; i++) {
+                *q++ = (uint8_t)((uint16_t)b3[i] & 0xFF); *q++ = (uint8_t)((uint16_t)b3[i] >> 8);
+            }
+            *q++ = (uint8_t)(bs->ang & 0xFF); *q++ = (uint8_t)(bs->ang >> 8);
+            *q++ = bs->ok;
+            const interf_result_t *ir = interf_results();
+            for (uint8_t c = 0; c < DRV_COUNT; c++) {
+                const int16_t d4[4] = { ir[c].dx, ir[c].dy, ir[c].dz, ir[c].dang };
+                for (uint8_t i = 0; i < 4; i++) {
+                    *q++ = (uint8_t)((uint16_t)d4[i] & 0xFF); *q++ = (uint8_t)((uint16_t)d4[i] >> 8);
+                }
+                *q++ = ir[c].ok;
+            }
+            if (hid_send_config(&rep)) interf_reply_pending = false;
         }
 
         // Right-side status reply
@@ -414,7 +489,9 @@ int main(void) {
         if ((to_ms_since_boot(get_absolute_time()) - tmag_ms) >= 20) {
             tmag_ms = to_ms_since_boot(get_absolute_time());
             tmag_xyz_t m;
-            if (tmag_read_xyz(&m) == TMAG_OK) {
+            sens_tmag_r = tmag_read_xyz(&m);
+            if (sens_tmag_r == TMAG_OK) sens_xyz = m;
+            if (sens_tmag_r == TMAG_OK) {
                 log_value("TMAG X", m.x);
                 log_value("TMAG Y", m.y);
                 log_value("TMAG Z", m.z);
@@ -424,7 +501,13 @@ int main(void) {
             // AS5047 rotation angle feeds stick 1's second axis once the
             // sensor board is working; unused while it is not.
             uint16_t ang;
-            if (as5047_read_angle(&ang) == AS_OK) {
+            sens_as_r = as5047_read_angle(&ang);
+            if (sens_as_r == AS_OK) {
+                sens_ang = ang;
+                as_diag_t dg;
+                if (as5047_read_diag(&dg) == AS_OK) sens_diag = dg;
+            }
+            if (sens_as_r == AS_OK) {
                 log_value("AS5047 angle", ang);
             }
 

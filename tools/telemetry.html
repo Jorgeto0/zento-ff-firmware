@@ -193,6 +193,25 @@
       <button class="ghost" id="readregs" style="margin-top:12px" disabled>Read registers</button>
       <div class="note" id="dumpnote">Reads every DRV8873 register, for diagnosing the driver SPI.</div>
     </div>
+
+    <div class="card">
+      <h2>Sensors (left stick)</h2>
+      <div class="row"><span class="label">TMAG</span><span class="val" id="sTm">—</span></div>
+      <div class="row"><span class="label">X</span><span class="val" id="sX">—</span></div>
+      <div class="row"><span class="label">Y</span><span class="val" id="sY">—</span></div>
+      <div class="row"><span class="label">Z</span><span class="val" id="sZ">—</span></div>
+      <div class="row"><span class="label">AS5047</span><span class="val" id="sAs">—</span></div>
+      <div class="row"><span class="label">Angle</span><span class="val" id="sAng">—</span></div>
+      <div class="row"><span class="label">Magnet</span><span class="val" id="sMag">—</span></div>
+      <div class="note">Plug the sensor boards in before powering the controller: they are detected at start-up.</div>
+    </div>
+
+    <div class="card">
+      <h2>Coil interference test</h2>
+      <pre id="itout" style="font-size:11px;white-space:pre-wrap;margin:0">—</pre>
+      <button class="ghost" id="runinterf" style="margin-top:12px" disabled>Run test</button>
+      <div class="note" id="itnote">Hold the stick still. Each coil runs at full power for a moment and the change in each sensor reading is shown. About 3.5 seconds.</div>
+    </div>
   </div>
 
   <div class="card" style="margin-top:14px">
@@ -306,12 +325,14 @@ $('connect').onclick = async () => {
     document.querySelectorAll('.tglr,.dirr').forEach(b => b.disabled = false);
     $('alloffr').disabled = false;
     $('readregs').disabled = false;
+    $('runinterf').disabled = false;
+    if (!sensPoll) sensPoll = setInterval(askSensors, 250);
     if (!rightPoll) rightPoll = setInterval(askRight, 250);
     $('setlim').disabled = false;
     $('runtest').disabled = false;
     device.addEventListener('inputreport', e => {
       if (e.reportId === 1) render(e.data);
-      if (e.reportId === 2) { settingsReply(e.data); selftestReply(e.data); rightReply(e.data); dumpReply(e.data); }
+      if (e.reportId === 2) { settingsReply(e.data); selftestReply(e.data); rightReply(e.data); dumpReply(e.data); sensorsReply(e.data); interfReply(e.data); }
     });
     askSettings();
   } catch (err) {
@@ -494,6 +515,76 @@ function rightReply(dv) {
   $('rlink').style.color = fresh ? '' : '#ef4444';
   $('rnote').textContent = 'Packets OK ' + ok + ', timeouts ' + to + ', CRC errors ' + crc +
     ', bad ' + bad + ' | right board received OK ' + s2ok + ', errors ' + s2err;
+}
+
+// ---- Sensors (0x17) and coil interference test (0x18) ----
+let sensPoll = null;
+const TMAG_MT = 300;                               // ±300 mT range in firmware
+const mT  = raw => (raw / 32768 * TMAG_MT).toFixed(1) + ' mT';
+const deg = cnt => (cnt * 360 / 16384).toFixed(2) + '°';
+const TMAG_ERR = ['OK', 'no SPI', 'CRC error', 'no reply'];
+const AS_ERR   = ['OK', 'no SPI', 'parity error', 'error flag', 'no reply'];
+async function askSensors() {
+  if (!device) return;
+  const buf = new Uint8Array(11);
+  buf[0] = 0x17;
+  try { await device.sendReport(2, buf); } catch (e) {}
+}
+function sensorsReply(dv) {
+  if (dv.getUint8(0) !== 0x17) return;
+  const tInit = dv.getUint8(1), tRead = dv.getUint8(2);
+  const x = dv.getInt16(3, true), y = dv.getInt16(5, true), z = dv.getInt16(7, true);
+  const aInit = dv.getUint8(10), aRead = dv.getUint8(11);
+  const ang = dv.getUint16(12, true), agc = dv.getUint8(14), fl = dv.getUint8(15);
+  const tOk = tInit === 0 && tRead === 0;
+  $('sTm').textContent = tInit !== 0 ? 'not found at start-up (' + (TMAG_ERR[tInit] || tInit) + ')'
+                       : tRead !== 0 ? 'read failed (' + (TMAG_ERR[tRead] || tRead) + ')' : 'Working';
+  const ax = v => {
+    if (!tOk) return '—';
+    const sat = Math.abs(v) >= 32000 ? '  SATURATED' : '';
+    return v + '  (' + mT(v) + ')' + sat;
+  };
+  $('sX').textContent = ax(x); $('sY').textContent = ax(y); $('sZ').textContent = ax(z);
+  const aOk = aInit === 0 && aRead === 0;
+  $('sAs').textContent = aInit !== 0 ? 'not found at start-up (' + (AS_ERR[aInit] || aInit) + ')'
+                       : aRead !== 0 ? 'read failed (' + (AS_ERR[aRead] || aRead) + ')' : 'Working';
+  $('sAng').textContent = aOk ? deg(ang) : '—';
+  const flags = [];
+  if (fl & 1) flags.push('field too strong');
+  if (fl & 2) flags.push('field too weak');
+  if (fl & 4) flags.push('angle unreliable');
+  $('sMag').textContent = aOk ? ('AGC ' + agc + (flags.length ? ', ' + flags.join(', ') : ', OK')) : '—';
+}
+$('runinterf').onclick = async () => {
+  if (!device) return;
+  const buf = new Uint8Array(11);
+  buf[0] = 0x18;
+  $('itout').textContent = 'Running… hold the stick still';
+  $('runinterf').disabled = true;
+  try { await device.sendReport(2, buf); }
+  catch (e) { $('itout').textContent = 'Failed, retry'; $('runinterf').disabled = false; }
+};
+function interfReply(dv) {
+  if (dv.getUint8(0) !== 0x18) return;
+  const names = ['Coil 1', 'Coil 2', 'Coil 3', 'Coil 4', 'Voice'];
+  const bok = dv.getUint8(9);
+  const sgn = v => (v >= 0 ? '+' : '') + v;
+  const lines = [];
+  if (!(bok & 3)) {
+    lines.push('No sensor answered, so nothing to measure.');
+  } else {
+    lines.push('Baseline: ' + ((bok & 1) ? 'X ' + dv.getInt16(1, true) + ' Y ' + dv.getInt16(3, true) + ' Z ' + dv.getInt16(5, true) : 'TMAG —') +
+               ((bok & 2) ? ', angle ' + deg(dv.getUint16(7, true)) : ', AS5047 —'));
+    for (let c = 0; c < 5; c++) {
+      const o = 10 + c * 9, ok = dv.getUint8(o + 8);
+      const dx = dv.getInt16(o, true), dy = dv.getInt16(o + 2, true), dz = dv.getInt16(o + 4, true), da = dv.getInt16(o + 6, true);
+      const tm = (ok & 1) ? 'X ' + sgn(dx) + ' (' + mT(dx) + ')  Y ' + sgn(dy) + '  Z ' + sgn(dz) : 'TMAG —';
+      const as = (ok & 2) ? 'angle ' + sgn(+(da * 360 / 16384).toFixed(2)) + '°' : 'AS5047 —';
+      lines.push(names[c] + ': ' + tm + ', ' + as);
+    }
+  }
+  $('itout').textContent = lines.join('\n');
+  $('runinterf').disabled = false;
 }
 
 // ---- Driver register dump (0x16) ----
