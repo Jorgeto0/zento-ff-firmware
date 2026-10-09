@@ -692,12 +692,24 @@ async function askRtest(start) {
   buf[0] = 0x19; buf[1] = start ? 1 : 0;
   try { await device.sendReport(2, buf); } catch (e) {}
 }
+let rtLastReply = 0, rtStarted = 0;
 $('runrtest').onclick = () => {
   rtCoils = []; rtHead = null;
+  rtStarted = Date.now(); rtLastReply = 0;
   $('rtout').textContent = 'Starting…';
   $('runrtest').disabled = true; $('copyrtest').disabled = true;
   askRtest(true);
-  if (!rtPoll) rtPoll = setInterval(() => askRtest(false), 500);
+  if (!rtPoll) rtPoll = setInterval(() => {
+    // Left board never answered 0x19: it is not running v30
+    if (!rtLastReply && Date.now() - rtStarted > 3000) {
+      clearInterval(rtPoll); rtPoll = null;
+      $('rtout').textContent = 'No answer from the left board. Flash mcu1_master_v' + FW_EXPECTED + '.uf2 on the left board and try again.';
+      $('rtout').style.color = '#ef4444';
+      $('runrtest').disabled = false;
+      return;
+    }
+    askRtest(false);
+  }, 500);
 };
 $('copyrtest').onclick = () => {
   navigator.clipboard.writeText('ZENTO right side self-test\n' + $('rtout').textContent)
@@ -706,6 +718,8 @@ $('copyrtest').onclick = () => {
 function rtestReply(dv) {
   if (dv.getUint8(0) !== 0x19) return;
   const state = dv.getUint8(1), prog = dv.getUint8(2), part = dv.getUint8(3);
+  rtLastReply = Date.now();
+  $('rtout').style.color = '';
   if (state === 1) {
     const c = Math.floor(prog / 6), st = ['rest', '50%', '100%', 'off', 'reverse', 'off'][prog % 6];
     $('rtout').textContent = 'Running… ' + R_NAMES[c] + ', ' + st + '  (' + Math.round(prog / 30 * 100) + '%)';
